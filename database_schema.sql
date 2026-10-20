@@ -43,7 +43,7 @@ create table orders (
     vendor_id integer not null,
     courier_id integer,
     status varchar(30) not null default 'ORDERED' CHECK (
-        status in ('ORDERED', 'ACCEPTED', 'PREPARATION', 'SHIPPING', 'DELIVERED', 'CANCELLED')
+        status in ('ORDERED', 'ACCEPTED', 'PREPARATION', 'SHIPPING', 'DELIVERED', 'REJECTED', 'CANCELLED')
     ),
     delivery_location geography(Point, 4326) not null,
     delivery_address varchar(100) not null,
