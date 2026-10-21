@@ -5,6 +5,7 @@ create table users (
     public_id UUID default gen_random_uuid() unique,
     email varchar(100) not null unique,
     password_hash varchar(255) not null,
+    token varchar(128) unique,
     role varchar(20) not null check (role in ('CLIENT', 'VENDOR', 'COURIER')),
     first_name varchar(50) not null,
     last_name varchar(50) not null,
