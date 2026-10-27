@@ -28,10 +28,16 @@ Architektura systemu została zaprojektowana w oparciu o jednolity ekosystem ję
 *   **Stripe:** Zewnętrzna bramka płatnicza. Wybrana ze względu na bogate API, wbudowane bezpieczeństwo transakcji oraz niezawodny system webhooków asynchronicznie informujący backend o pomyślnym zaksięgowaniu wpłaty.
 *   **Nominatim (OpenStreetMap API):** Zewnętrzny serwis geokodujący. Wybrany jako darmowa alternatywa dla płatnych API mapowych do bezproblemowej konwersji adresów tekstowych (wprowadzanych przez klienta) na współrzędne geograficzne niezbędne dla systemu geolokalizacji.
 
-### 1.5. Infrastruktura (DevOps)
+### 1.5. Infrastruktura i Wdrożenie (Google Cloud Platform)
 
-*   **Github:** Platforma do kontroli wersji i dzielenia pracy między deweloperami.
-*   **Docker i Docker Compose:** Platforma konteneryzacji. Wykorzystana do hermetyzacji środowisk bazodanowych (PostgreSQL/PostGIS oraz Redis). Gwarantuje to, że każdy z programistów w zespole posiada identyczne warunki uruchomieniowe bez konieczności skomplikowanej instalacji usług na lokalnych systemach operacyjnych.
+Zdecydowaliśmy się na oparcie wdrożenia systemu na zarządzanych usługach chmurowych z ekosystemu Google. 
+
+* **Google Cloud Run (Backend):** Środowisko uruchomieniowe serverless dla kontenerów Docker z aplikacją NestJS. Zapewnia automatyczne skalowanie od zera do tysięcy instancji w zależności od aktualnego obciążenia ruchem sieciowym, optymalizując koszty infrastruktury.
+* **Cloud SQL for PostgreSQL (Baza Relacyjna):** Zarządzana usługa bazy danych. Zapewnia wysoką dostępność (HA), zautomatyzowane kopie zapasowe oraz natywne wsparcie dla rozszerzenia **PostGIS**, gwarantując stabilność kluczowych danych biznesowych.
+* **Cloud Memorystore for Redis (Baza In-memory):** Zarządzany klaster Redis zintegrowany w prywatnej sieci chmurowej (VPC). Gwarantuje mikrosekundowe czasy odpowiedzi niezbędne dla cyklicznej telemetrii kurierów, chroniąc system przed utratą danych.
+* **Firebase Hosting (Frontend Web):** Prosty i bezpieczny hosting statycznych plików aplikacji React. Wykorzystuje CDN Google, co skraca czas ładowania interfejsów.
+* **Expo EAS:** Platforma chmurowa wykorzystywana do budowania gotowych pakietów instalacyjnych aplikacji mobilnej Kuriera (`.apk` / `.ipa`), co wyeliminuje konieczność konfiguracji lokalnych środowisk kompilacji.
+* **Github:** Platforma do kontroli wersji i dzielenia pracy między deweloperami.
 
 ---
 
