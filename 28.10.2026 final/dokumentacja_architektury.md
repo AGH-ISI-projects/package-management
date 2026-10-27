@@ -22,15 +22,15 @@ Architektura systemu została zaprojektowana w oparciu o jednolity ekosystem ję
 *   **React Native (z Expo):** Framework mobilny pozwalający na kompilację kodu JS/TS - co w połączneniu z backendem TS się świetnie uzupełnia - do natywnych aplikacji na platformy iOS i Android. Został wybrany do budowy aplikacji Kuriera, ponieważ jej kluczową funkcjonalnością jest ciągły dostęp do wbudowanego modułu GPS urządzenia (również w tle).
 *   **TanStack Query (React Query) i Zustand:** Główne biblioteki zarządzania stanem na frontendzie. React Query odpowiada za płynną synchronizację danych z serwerem REST (cache'owanie zapytań), a Zustand za lekki stan lokalny (np. obsługę koszyka zakupowego przed złożeniem zamówienia).
 
-### 1.4. Usługi Zewnętrzne i Integracje (Third-Party Services)
+### 1.4. Usługi Zewnętrzne i Integracje
 
 *   **Ably:** Platforma chmurowa Real-Time (wzorzec Pub/Sub). Przejęła odpowiedzialność za utrzymanie otwartych połączeń z aplikacjami frontendowymi. Została wybrana w celu odciążenia serwera NestJS ze skomplikowanego zarządzania stanem websocketów, zapewniając niezawodne powiadomienia oraz bieżące aktualizacje stanu przesyłki w panelach frontendowych.
 *   **Stripe:** Zewnętrzna bramka płatnicza. Wybrana ze względu na bogate API, wbudowane bezpieczeństwo transakcji oraz niezawodny system webhooków asynchronicznie informujący backend o pomyślnym zaksięgowaniu wpłaty.
 *   **Nominatim (OpenStreetMap API):** Zewnętrzny serwis geokodujący. Wybrany jako darmowa alternatywa dla płatnych API mapowych do bezproblemowej konwersji adresów tekstowych (wprowadzanych przez klienta) na współrzędne geograficzne niezbędne dla systemu geolokalizacji.
 
-### 1.5. Infrastruktura i Wdrożenie (Google Cloud Platform)
+### 1.5. Infrastruktura i Wdrożenie
 
-Zdecydowaliśmy się na oparcie wdrożenia systemu na zarządzanych usługach chmurowych z ekosystemu Google. 
+Zdecydowaliśmy się na oparcie wdrożenia systemu na zarządzanych usługach chmurowych z ekosystemu Google Cloud. 
 
 * **Google Cloud Run (Backend):** Środowisko uruchomieniowe serverless dla kontenerów Docker z aplikacją NestJS. Zapewnia automatyczne skalowanie od zera do tysięcy instancji w zależności od aktualnego obciążenia ruchem sieciowym, optymalizując koszty infrastruktury.
 * **Cloud SQL for PostgreSQL (Baza Relacyjna):** Zarządzana usługa bazy danych. Zapewnia wysoką dostępność (HA), zautomatyzowane kopie zapasowe oraz natywne wsparcie dla rozszerzenia **PostGIS**, gwarantując stabilność kluczowych danych biznesowych.
@@ -78,8 +78,8 @@ Obsługuje menu/ofertę dostawców.
 * `updateProduct(currentUser: JwtPayload, productId: number, dto: UpdateProductDto) -> Promise<ProductDto>`: Edytuje lub deaktywuje produkt (bez usuwania z bazy, by chronić historię).
 
 **`ProductsService`**
-* `create(vendorId: number, dto: CreateProductDto) -> Promise<ProductEntity>`
-* `update(vendorId: number, productId: number, dto: UpdateProductDto) -> Promise<ProductEntity>`
+* `create(vendorId: number, dto: CreateProductDto) -> Promise<ProductEntity>`: Dodaje nowy produkt.
+* `update(vendorId: number, productId: number, dto: UpdateProductDto) -> Promise<ProductEntity>`: Uaktualnia stan produktu.
 * `validateAndLockProductsForOrder(vendorId: number, items: OrderItemInputDto[]) -> Promise<ValidatedOrderItem[]>`: Weryfikuje aktywność produktów i pobiera ich aktualną cenę na moment składania zamówienia.
 
 ### Moduł Zamówień (Orders)
@@ -99,7 +99,7 @@ Centralny automat stanów (State Machine) orkiestrujący cykl życia zlecenia.
 * `courierReportIssue(currentUser: JwtPayload, orderId: number, dto: IssueReportDto) -> Promise<void>`: Obsługa wyjątków (awaria/wypadek) – ponowne szukanie kuriera lub przejście w stan `DELIVERY_FAILED`.
 
 **`OrdersService`**
-* `create(clientId: number, dto: CreateOrderDto) -> Promise<{ order: OrderEntity, paymentUrl: string }>`
+* `create(clientId: number, dto: CreateOrderDto) -> Promise<{ order: OrderEntity, paymentUrl: string }>`: Inicjalizuje nowe zamowienie.
 * `transitionState(orderId: number, actorId: number, actorRole: UserRole, targetState: OrderStatus) -> Promise<OrderEntity>`: Sprawdza macierz przejść, zapisuje stan i triggeruje powiadomienia (Ably + DB).
 * `initiateCourierMatching(orderId: number) -> Promise<void>`: Odpytuje Redis o kuriera i wysyła ofertę.
 * `confirmCourierAssignment(orderId: number, courierId: number) -> Promise<void>`: Twardy zapis w PostgreSQL, usuwa wolnego kuriera z Redis.
@@ -115,7 +115,7 @@ Integracja zewnętrzna (geokodowanie) i przestrzenna baza Redis (telemetria).
 * `geocodeAddress(address: string) -> Promise<PointDto>`
 * `updateCourierLocationInRedis(courierId: number, point: PointDto) -> Promise<void>`: Komenda `GEOADD` + odświeżenie TTL `active`.
 * `findAndLockNearestCourier(vendorLocation, orderId, excludedCouriers) -> Promise<number | null>`: Używa `GEOSEARCH` i skryptu LUA do założenia 15-sekundowego soft-locka na kandydata.
-* `releaseCourierSoftLock(courierId: number, orderId: number) -> Promise<void>`
+* `releaseCourierSoftLock(courierId: number, orderId: number) -> Promise<void>`: Zwalnai soft-lock.
 * `removeCourierFromActivePool(courierId: number) -> Promise<void>`
 * `findNearbyVendors(clientPoint: PointDto, radiusMeters: number) -> Promise<VendorDistanceResult[]>`: Używa `ST_DWithin` oraz indeksu GIST `idx_vendor_location` w bazie PostGIS.
 
@@ -126,7 +126,7 @@ Integracja zewnętrzna (geokodowanie) i przestrzenna baza Redis (telemetria).
 * `getPaymentStatus(currentUser: JwtPayload, orderId: number) -> Promise<PaymentDto>`
 
 **`PaymentsService`**
-* `createPaymentIntent(orderId: number, amount: number, clientEmail: string) -> Promise<string>`
+* `createPaymentIntent(orderId: number, amount: number, clientEmail: string) -> Promise<string>`: Inicjalizuje płatność.
 * `processWebhookEvent(payload: PaymentWebhookPayloadDto) -> Promise<void>`: Aktualizuje status, a jeśli `COMPLETED` – informuje Dostawcę.
 * `refundPayment(orderId: number) -> Promise<void>`: Zleca zwrot na kartę klienta.
 
@@ -148,7 +148,7 @@ Integracja Ably (wzorzec Pub/Sub) oraz trwała historia komunikatów.
 * `markAsRead(currentUser: JwtPayload, notificationId: number) -> Promise<void>`
 
 **`NotificationService`**
-* `createAblyTokenRequest(userId: number, role: UserRole) -> Promise<AblyTokenRequestDto>`
+* `createAblyTokenRequest(userId: number, role: UserRole) -> Promise<AblyTokenRequestDto>`: Pobiera token Ably dla użytkownika.
 * `publishAndPersistMessage(...) -> Promise<void>`: Zapisuje rekord do `notifications` i wysyła asynchroniczny POST do API Ably.
 * `sendCourierOfferAlert(...) -> Promise<void>`: Lotny komunikat dla kuriera (przydział), nietrafiający trwale do bazy.
 
@@ -359,10 +359,3 @@ Klasy i dekoratory chroniące aplikację przed nieuprawnionym dostępem:
 2. **`RolesGuard`:** Wymaga dodania dekoratora `@Roles('CLIENT' | 'VENDOR' | 'COURIER')` na endpoincie. Odrzuca żądania z kodem 403 Forbidden, jeśli aktor wykonuje zapytanie niezgodne z jego interfejsem (np. klient nie może tworzyć produktów).
 3. **`OrderParticipantGuard`:** Ochrona typu IDOR (Insecure Direct Object Reference). Wykorzystuje parametr URL `orderId`, by sprawdzić, czy zalogowany użytkownik widnieje w bazie jako `client_id`, `vendor_id`, `courier_id` zamówienia (lub ma założony soft-lock w Redisie przy przydziale).
 4. **`WebhookSignatureGuard`:** Weryfikuje kryptograficzny Hash z użyciem `WEBHOOK_SECRET`, aby uniemożliwić atakującym ręczne wywoływanie webhooka ze sfabrykowanym statusem płatności `COMPLETED`.
-
----
-
-## 6. Diagramy
-
-![Główny diagram architektury](./diagrammain.png)
-![Diagram struktury danych](./schema.png)
