@@ -8,44 +8,7 @@ W celu odciążenia bazy relacyjnej z operacji owysokiej częstotliwości zapisu
 * **Trwałość vs Szybkość:** PostgreSQL zapisuje dane na dysku (trwałość transakcyjna ACID), natomiast Redis operuje w pamięci RAM. Odczyt i zapis trwają ułamki milisekund, co czyni go idealnym buforem dla danych ulotnych (np. bieżąca pozycja GPS), których ewentualna utrata nie zaburzy krytycznych procesów biznesowych.
 * **Czas życia danych (TTL):** W SQL dane istnieją do momentu wywołania komendy `DELETE`. W Redisie niemal każdy klucz otrzymuje parametr TTL (Time-To-Live). Po upływie tego czasu serwer automatycznie usuwa dany klucz z pamięci.
 
-### 6.2 Diagram Zarządzania Danymi Redis
-
-Poniższy schemat przedstawia architekturę struktur danych w pamięci podręcznej.
-
-```mermaid
-classDiagram
-    direction TB
-
-    class CourierLocations {
-        <<GEO - Zbiór przestrzenny>>
-        +String KEY "couriers:locations"
-        +String member "np. 42 (courier_id)"
-        +Float score "Współrzędne GPS"
-        +String opis "Błyskawiczne wyszukiwanie przez GEOSEARCH"
-    }
-
-    class CourierSession {
-        <<HASH - Słownik>>
-        +String KEY "courier:session:[courier_id]"
-        +Integer TTL "60 sekund (Auto-wygasanie)"
-        +Boolean is_available 
-        +Timestamp last_ping 
-        +Integer current_order_id 
-        +String opis "Bieżący status, zastępuje UPDATE w SQL"
-    }
-
-    class OrderAssignLock {
-        <<STRING - SETNX>>
-        +String KEY "order:lock:[order_id]"
-        +Integer TTL "3 sekundy"
-        +String value "LOCKED"
-        +String opis "Rozproszona blokada (Mutex)"
-    }
-
-    CourierLocations <--> CourierSession : Zawsze synchronizowane razem (Ping GPS)
-```
-
-### 6.3. Opis struktur w projekcie
+### 6.2 Opis struktur w projekcie
 
 #### A. couriers:locations (Struktura GEO)
 
