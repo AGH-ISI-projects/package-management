@@ -14,7 +14,7 @@ W celu odciążenia bazy relacyjnej z operacji owysokiej częstotliwości zapisu
 
 Aplikacja mobilna wysyła metadane GPS bezpośrednio do Redisa. Struktura `GEO` zachowuje się pod maską jak posortowany zbiór (Sorted Set) i korzysta ze zoptymalizowanych algorytmów przestrzennych.
 
-* **Wykorzystanie:** Gdy zamówienie przechodzi w stan "W przygotowaniu", moduł przydziału wywołuje jedną komendę (np. `GEOSEARCH couriers:locations BYRADIUS 5 km`). Baza w czasie poniżej milisekundy zwraca listę ID najbliższych kurierów, całkowicie omijając obciążające zapytania przestrzenne w PostGIS.
+* **Wykorzystanie:** Gdy zamówienie przechodzi w stan "ACCEPTED", moduł przydziału wywołuje jedną komendę (np. `GEOSEARCH couriers:locations BYRADIUS 5 km`). Baza w czasie poniżej milisekundy zwraca listę ID najbliższych kurierów, całkowicie omijając obciążające zapytania przestrzenne w PostGIS.
 * **Aktualizacja:** Wykonywana synchronicznie wraz z zapisem sesji kuriera (przy każdym pingu z aplikacji mobilnej).
 
 #### B. courier:session:[courier_id] (Struktura HASH)
