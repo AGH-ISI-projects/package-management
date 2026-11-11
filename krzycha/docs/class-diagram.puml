@@ -1,0 +1,168 @@
+@startuml
+
+left to right direction
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+
+'--------------classes-----------------
+
+together {
+    abstract class AbstractPerson {
+        +int Id
+        +string Name
+        +string Surname
+        +string Email
+        +string PhoneNumber
+        +int? Rank
+    }
+
+    class User {
+        +List<Package>? SentPackages
+        +List<Package>? ReceivedPackages
+    }
+
+    class Courier {
+        +double Latitude
+        +double Longitude
+        +List<Package>? Packages
+    }
+
+    class Operator {
+        +List<Package>? Packages
+    }
+}
+
+class Package {
+    +int Id
+    +BoxSize Size
+    +int? BoxId
+    +int? DestinationBoxId
+    +PackageStatus Status
+    +int SenderId
+    +User Sender
+    +int RecipientId
+    +User Recipient
+    +int? CourierId
+    +Courier? Courier
+    +int? OperatorId
+    +Operator? Operator
+    +Box? Box
+    +Box? DestinationBox
+    +Payment? Payment
+    +DateTime DepositDeadline
+    +DateTime? DepositConfirmedAt
+    +DateTime? AcceptedAt
+    +DateTime? PreparedAt
+    +DateTime? ShippedAt
+    +DateTime? DeliveredAt
+    +DateTime? CollectedAt
+    +DateTime? ExpiredAt
+    +string? PickupCode
+
+    +void Accept()
+    +void ConfirmDeposit()
+    +void Prepare()
+    +void Ship()
+    +void Deliver()
+    +void Collect(string code)
+    +void MarkAsReturned()
+    +void Reject()
+    +void Cancel()
+    +void Expire()
+    +void AssignOperator(Operator operatorUser)
+    +void AssignCourier(Courier courier)
+}
+
+class Payment {
+    +int Id
+    +int PackageId
+    +Package Package
+    +string PayerEmail
+    +decimal Amount
+    +PaymentStatus Status
+    +string? ExternalReference
+    +DateTime CreatedAt
+    +DateTime? CompletedAt
+
+    +void Complete()
+    +void Fail()
+}
+
+together {
+    class Box {
+        +int Id
+        +int ParcelLockerId
+        +ParcelLocker? ParcelLocker
+        +List<Package>? Packages
+        +BoxSize Size
+        +int Version
+    }
+
+    class ParcelLocker {
+        +int Id
+        +double Latitude
+        +double Longitude
+        -{readonly} List<Box> _boxes
+        +IReadOnlyList<Box> Boxes
+        +string Country
+        +string City
+        +string Street
+        +string PostalCode
+        +string Number
+
+        +Box CreateBox(BoxSize size)
+        +void RemoveBox(int boxId)
+    }
+}
+
+together {
+    enum PackageStatus {
+        Ordered
+        Accepted
+        Preparing
+        Shipped
+        Delivered
+        Collected
+        Rejected
+        Cancelled
+        Expired
+        ReturnedToSender
+    }
+
+    enum BoxSize {
+        Small
+        Medium
+        Large
+    }
+
+    enum PaymentStatus {
+        Pending
+        Completed
+        Failed
+    }
+}
+
+' ------------relations-------------
+
+AbstractPerson <|-- User
+AbstractPerson <|-- Courier
+AbstractPerson <|-- Operator
+
+User "1" <-- "0..*" Package : Sender
+User "1" <-- "0..*" Package : Recipient
+Courier "0..1" <-- "0..*" Package
+Operator "0..1" <-- "0..*" Package
+
+Package "1" --> "0..1" Box : Box
+Package "1" --> "0..1" Box : DestinationBox
+
+ParcelLocker "1" *-- "0..*" Box
+
+Package "1" *-- "0..1" Payment
+
+Package ..> PackageStatus
+Package ..> BoxSize
+Box ..> BoxSize
+Payment ..> PaymentStatus
+
+@enduml
