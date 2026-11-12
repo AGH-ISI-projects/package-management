@@ -5,6 +5,17 @@
 mysql_data/
 .env
 
+# Local .NET installation, caches and temporary files
+.dotnet/
+.dotnet_temp/
+
+# Agent and AI artifacts
+.agents/
+
+# Test results and logs
+[Tt]est[Rr]esults/
+*.log
+
 .vs/
 .vscode/
 *.suo

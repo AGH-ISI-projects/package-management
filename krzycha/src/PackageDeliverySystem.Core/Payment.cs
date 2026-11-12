@@ -32,4 +32,14 @@ public class Payment
 
         Status = PaymentStatus.Failed;
     }
+
+    public void Refund()
+    {
+        if (Status != PaymentStatus.Completed)
+        {
+            throw new InvalidOperationException($"Cannot refund payment in status {Status}");
+        }
+
+        Status = PaymentStatus.Refunded;
+    }
 }

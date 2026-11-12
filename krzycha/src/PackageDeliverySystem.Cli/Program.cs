@@ -11,6 +11,8 @@ services.AddDbContext<DeliveryDbContext>(options =>
 
 services.AddScoped<IPackageRepository, PackageRepository>();
 services.AddScoped<IBoxRepository, BoxRepository>();
+services.AddScoped<IReturnRepository, ReturnRepository>();
+services.AddScoped<IReturnService, ReturnService>();
 services.AddScoped<IPackageAcceptanceService, PackageAcceptanceService>();
 services.AddScoped<IPackageFulfillmentService, PackageFulfillmentService>();
 services.AddScoped<IPackageIntakeService, PackageIntakeService>();

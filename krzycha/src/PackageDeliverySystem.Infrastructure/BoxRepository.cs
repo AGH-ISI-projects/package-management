@@ -25,7 +25,8 @@ public class BoxRepository : IBoxRepository
         PackageStatus.Cancelled,
         PackageStatus.Rejected,
         PackageStatus.Expired,
-        PackageStatus.ReturnedToSender
+        PackageStatus.ReturnedToSender,
+        PackageStatus.Returned
     };
 
     public async Task<Box?> FindFreeBoxAsync(int parcelLockerId, BoxSize size, int? excludeBoxId = null)

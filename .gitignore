@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local .NET & Agent artifacts
+.dotnet/
+.dotnet_temp/
+.agents/
+**/[Bb]in/
+**/[Oo]bj/
+

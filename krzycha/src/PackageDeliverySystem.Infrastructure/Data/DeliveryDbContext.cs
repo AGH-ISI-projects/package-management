@@ -12,6 +12,7 @@ namespace PackageDeliverySystem.Infrastructure.Data
         public DbSet<ParcelLocker> ParcelLockers { get; set; }
         public DbSet<AbstractPerson> Users { get; set; }
         public DbSet<Payment> Payments { get; set; }
+        public DbSet<Return> Returns { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -90,6 +91,29 @@ namespace PackageDeliverySystem.Infrastructure.Data
             modelBuilder.Entity<Payment>().Property(p => p.PayerEmail).HasMaxLength(255);
             modelBuilder.Entity<Payment>().Property(p => p.ExternalReference).HasMaxLength(100);
             modelBuilder.Entity<Payment>().Property(p => p.Amount).HasPrecision(10, 2);
+
+            modelBuilder.Entity<Return>(entity =>
+            {
+                entity.ToTable("Returns");
+                entity.HasKey(r => r.Id);
+                entity.Property(r => r.Status).HasConversion<string>().HasMaxLength(30);
+                entity.Property(r => r.Reason).HasMaxLength(500);
+
+                entity.HasOne(r => r.Package)
+                    .WithOne(p => p.Return)
+                    .HasForeignKey<Return>(r => r.PackageId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(r => r.ReturnBox)
+                    .WithMany()
+                    .HasForeignKey(r => r.ReturnBoxId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(r => r.ReturnDestinationBox)
+                    .WithMany()
+                    .HasForeignKey(r => r.ReturnDestinationBoxId)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
         }
     }
 }

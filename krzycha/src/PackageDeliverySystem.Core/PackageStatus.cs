@@ -11,5 +11,8 @@ public enum PackageStatus
     Rejected,
     Cancelled,
     Expired,
-    ReturnedToSender
+    ReturnedToSender,
+    ReturnRequested,
+    ReturnInProgress,
+    Returned
 }

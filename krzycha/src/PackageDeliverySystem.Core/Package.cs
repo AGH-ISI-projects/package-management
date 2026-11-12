@@ -23,6 +23,8 @@ public class Package
     public Box? Box { get; set; } = null!;
     public Box? DestinationBox { get; set; }
     public Payment? Payment { get; set; }
+    public int? OrderGroupId { get; set; }
+    public Return? Return { get; set; }
 
     public DateTime DepositDeadline { get; set; } = DateTime.UtcNow.Add(DepositWindow);
     public DateTime? DepositConfirmedAt { get; private set; }
@@ -114,6 +116,54 @@ public class Package
              throw new InvalidOperationException($"Cannot return package in status {Status}");
 
         Status = PackageStatus.ReturnedToSender;
+    }
+
+    public void RequestReturn()
+    {
+        if (Status != PackageStatus.Collected)
+            throw new InvalidOperationException($"Cannot request return for package in status {Status}. Only collected packages can be returned.");
+
+        Status = PackageStatus.ReturnRequested;
+    }
+
+    public void ApproveReturn()
+    {
+        if (Status != PackageStatus.ReturnRequested)
+            throw new InvalidOperationException($"Cannot approve return for package in status {Status}");
+
+        Status = PackageStatus.ReturnInProgress;
+    }
+
+    public void RejectReturn()
+    {
+        if (Status != PackageStatus.ReturnRequested)
+            throw new InvalidOperationException($"Cannot reject return for package in status {Status}");
+
+        Status = PackageStatus.Collected;
+    }
+
+    public void ShipReturn()
+    {
+        if (Status != PackageStatus.ReturnInProgress)
+            throw new InvalidOperationException($"Cannot ship return for package in status {Status}");
+
+        Status = PackageStatus.ReturnInProgress;
+    }
+
+    public void CompleteReturn()
+    {
+        if (Status != PackageStatus.ReturnInProgress)
+            throw new InvalidOperationException($"Cannot complete return for package in status {Status}");
+
+        Status = PackageStatus.Returned;
+    }
+
+    public void CancelReturn()
+    {
+        if (Status != PackageStatus.ReturnRequested && Status != PackageStatus.ReturnInProgress)
+            throw new InvalidOperationException($"Cannot cancel return for package in status {Status}");
+
+        Status = PackageStatus.Collected;
     }
 
     public void Reject()
