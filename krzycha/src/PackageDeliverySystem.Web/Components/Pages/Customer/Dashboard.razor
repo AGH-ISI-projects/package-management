@@ -46,5 +46,5 @@ else
         // TODO: filter by logged-in customer once auth exists
         packages = (await DeliveryData.GetOrderedPackages()).ToList();
 
-    private void AddPackage() => Navigation.NavigateTo("/customer/send");
+    private void AddPackage() => Navigation.NavigateTo("/");
 }

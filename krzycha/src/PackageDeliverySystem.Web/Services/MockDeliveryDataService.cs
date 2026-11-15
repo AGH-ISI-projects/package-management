@@ -60,8 +60,21 @@ public class MockDeliveryDataService : IDeliveryDataService
             DestinationBoxId = destinationBox?.Id,
         };
 
+        package.AddItem("Przykładowy towar A", 49.99m);
+        package.AddItem("Przykładowy towar B", 29.99m);
+
         if (targetStatus == PackageStatus.Ordered)
             return package;
+
+        package.ConfirmDeposit();
+        package.Payment = new Payment
+        {
+            Package = package,
+            PackageId = package.Id,
+            Amount = 15.00m,
+            PayerEmail = sender.Email
+        };
+        package.Payment.Complete();
 
         package.Accept();
 
