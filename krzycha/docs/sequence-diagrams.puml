@@ -323,7 +323,7 @@ Web -> ReturnSvc: CreateReturnDeliveryAsync(originalPackageId, customerId,\nitem
 ReturnSvc -> DB: SELECT originalPackage + Items
 DB --> ReturnSvc: originalPackage
 
-alt Walidacja biznesowa nie powiodła się
+alt Walidacja nie powiodła się
     note over ReturnSvc
       Warunki walidacji:
       - itemIds nie jest puste
@@ -385,28 +385,5 @@ end
 note over Customer, Hangfire #LightCyan
   <b>OD TEGO MOMENTU PROCES NICZYM NIE RÓŻNI SIĘ OD ZWYKŁEJ PACZKI</b>
   Utworzona przesyłka (returnPackage) jest pełnoprawnym obiektem <b>Package</b> ze statusem <b>Ordered</b>.
-  System nie wymaga żadnego osobnego kuriera ani zdublowanych serwisów logistycznych.
-  Przesyłka powrotna realizuje ten sam standardowy potok co każda inna paczka:
 end note
-
-ref over Customer, Web, DB, Hangfire
-  <b>Diagram 02: Potwierdzenie depozytu (Courier: confirm deposit)</b>
-  Klient wkłada zwracane produkty do skrytki -> Kurier potwierdza obecność paczki (Package.ConfirmDeposit)
-end ref
-
-ref over Web, DB, Hangfire
-  <b>Diagram 03: Akceptacja przez operatora (Operator: accept or reject)</b>
-  Operator weryfikuje skrytkę i zatwierdza zlecenie (Package.Accept -> Status = Accepted)
-end ref
-
-ref over Web, DB, Hangfire
-  <b>Diagram 04: Transport kurierski (Courier: assign, pick up, deliver)</b>
-  Kurier podejmuje paczkę (Preparing -> Shipped) i dostarcza do paczkomatu docelowego sklepu (Delivered)
-end ref
-
-ref over Customer, Web, DB
-  <b>Diagram 05: Odbiór przez sprzedawcę (Customer/Merchant: collect)</b>
-  Pierwotny sprzedawca odbiera zwrócone towary kodem odbioru PIN (Status = Collected)
-end ref
-
 @enduml
