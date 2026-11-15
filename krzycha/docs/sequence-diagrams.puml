@@ -20,9 +20,9 @@ DB --> OrderSvc: lockers
 OrderSvc --> Web: lockers
 Web --> Sender: list / map of lockers
 
-Sender -> Web: choose origin locker, destination locker,\nsize (S/M/L), recipient
+Sender -> Web: choose origin locker, destination locker,\nsize (S/M/L), recipient,\nand define items list [name, price]
 
-Web -> OrderSvc: CreatePackageAsync(senderId, recipientId,\noriginLockerId, destLockerId, size)
+Web -> OrderSvc: CreatePackageAsync(senderId, recipientId,\noriginLockerId, destLockerId, size, items)
 OrderSvc -> DB: FindFreeBoxAsync(originLockerId, size)
 DB --> OrderSvc: originBox / null
 
@@ -37,9 +37,9 @@ else origin box found
         OrderSvc --> Web: throw InvalidOperationException
         Web --> Sender: "No free box - choose another locker/size"
     else destination box found
-        OrderSvc -> DB: INSERT Package(Status=Ordered,\nBoxId, DestinationBoxId, DepositDeadline=now+48h)
-        OrderSvc --> Web: package
-        Web --> Sender: package created
+        OrderSvc -> DB: INSERT Package(Status=Ordered,\nBoxId, DestinationBoxId, DepositDeadline=now+48h)\n+ INSERT PackageItems(PackageId, Name, Price)
+        OrderSvc --> Web: package (with Items)
+        Web --> Sender: package created (items registered)
 
         Sender -> Web: pay
         Web -> IntakeSvc: RequestPaymentAsync(packageId, payerEmail, amount)
@@ -285,6 +285,104 @@ end
 note over RatingSvc, DB
   Rank is overwritten by each new rating, not averaged - there is no
   rating history table (see AbstractPerson.Rank).
+end note
+
+@enduml
+
+@startuml 06-customer-return-items
+title 06 - Customer: return items (partial / full return)
+
+actor "User\n(Customer/Recipient)" as Customer
+participant "Blazor\nWeb App" as Web
+participant "PackageReturnService" as ReturnSvc
+participant "PackageOrderService" as OrderSvc
+participant "PackageRepository" as PkgRepo
+participant "BoxRepository" as BoxRepo
+database "MySQL\n(EF Core)" as DB
+queue "Hangfire\nJob Queue" as Hangfire
+
+== 1. Query available returnable items ==
+Customer -> Web: Open collected package details\nclick "Return items"
+Web -> ReturnSvc: GetAvailableItemsForReturnAsync(originalPackageId, customerId)
+ReturnSvc -> PkgRepo: GetByIdAsync(originalPackageId)
+PkgRepo -> DB: SELECT Package + Items
+DB --> PkgRepo: originalPackage
+PkgRepo --> ReturnSvc: originalPackage
+
+alt customerId != originalPackage.RecipientId
+    ReturnSvc --> Web: throw InvalidOperationException\n"Only the package recipient can query returnable items"
+    Web --> Customer: "Access denied"
+else recipient valid
+    ReturnSvc -> ReturnSvc: filter originalPackage.Items\nwhere !item.IsReturned
+    ReturnSvc --> Web: returnableItems list
+    Web --> Customer: display items with checkboxes
+end
+
+== 2. Submit partial or full return delivery ==
+Customer -> Web: select items to return [itemIds]\n(optional: return locker, size)
+Web -> ReturnSvc: CreateReturnDeliveryAsync(originalPackageId, customerId, itemIds, originLockerId?, size?)
+
+ReturnSvc -> PkgRepo: GetByIdAsync(originalPackageId)
+PkgRepo -> DB: SELECT Package + Items
+DB --> PkgRepo: originalPackage
+PkgRepo --> ReturnSvc: originalPackage
+
+alt validation failure
+    note over ReturnSvc
+      Validations:
+      - itemIds is not empty
+      - originalPackage.RecipientId == customerId
+      - originalPackage.Status == Collected
+      - all itemIds belong to package
+      - none of the selected items have IsReturned == true
+      - original package has BoxId and DestinationBoxId
+    end note
+    ReturnSvc --> Web: throw InvalidOperationException / ArgumentException
+    Web --> Customer: display validation error message
+else validations pass
+    ReturnSvc -> BoxRepo: GetByIdAsync(originalPackage.DestinationBoxId)
+    BoxRepo -> DB: SELECT Box
+    DB --> BoxRepo: originalDestinationBox
+    ReturnSvc -> BoxRepo: GetByIdAsync(originalPackage.BoxId)
+    BoxRepo -> DB: SELECT Box
+    DB --> BoxRepo: originalOriginBox
+
+    note over ReturnSvc
+      Reverse routing by default:
+      - Return Origin Locker = original destination locker (customer's pickup locker)
+      - Return Destination Locker = original origin locker (merchant's sender locker)
+      - Return Sender = original Recipient (Customer)
+      - Return Recipient = original Sender (Merchant)
+      - Size = specified or original package size
+    end note
+
+    ReturnSvc -> OrderSvc: CreatePackageAsync(senderId: originalPackage.RecipientId,\nrecipientId: originalPackage.SenderId,\noriginLockerId, destinationLockerId, returnSize)
+    OrderSvc -> DB: FindFreeBoxAsync() for origin & destination
+    DB --> OrderSvc: boxes allocated
+    OrderSvc -> DB: INSERT Package(Status=Ordered)
+    DB --> OrderSvc: returnPackage
+    OrderSvc --> ReturnSvc: returnPackage
+
+    ReturnSvc -> ReturnSvc: returnPackage.OriginalPackageId = originalPackage.Id
+    loop each item in itemsToReturn
+        ReturnSvc -> ReturnSvc: item.ReturnPackageId = returnPackage.Id\n(item.IsReturned becomes true)
+    end
+
+    ReturnSvc -> PkgRepo: UpdateAsync(originalPackage)
+    ReturnSvc -> PkgRepo: UpdateAsync(returnPackage)
+    ReturnSvc -> DB: SaveChanges()
+    ReturnSvc -> Hangfire: Enqueue(SendNotification\n("Return delivery created"))
+    ReturnSvc --> Web: returnPackage
+    Web --> Customer: "Return delivery created! Proceed to deposit items in locker"
+end
+
+note over ReturnSvc, DB
+  Reusability & Anti-Slop Architecture:
+  The created returnPackage is a genuine reverse Package instance.
+  It moves through the standard logistics lifecycle:
+  deposit confirmation (02) -> operator acceptance (03) ->
+  courier shipping & delivery (04) -> merchant collection (05).
+  No duplicate courier or locker return methods needed.
 end note
 
 @enduml

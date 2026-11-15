@@ -12,7 +12,7 @@ skinparam rectangle {
     FontStyle bold
 }
 
-rectangle "<b>1. Zamówienie</b>\n\nPackageOrderService.CreatePackageAsync\n→ IBoxRepository.FindFreeBoxAsync ×2 (origin + destination)\n→ new Package { BoxId, DestinationBoxId }\n→ IPackageRepository.AddAsync" as F1 #E8F0FE
+rectangle "<b>1. Zamówienie</b>\n\nPackageOrderService.CreatePackageAsync\n→ IBoxRepository.FindFreeBoxAsync ×2 (origin + destination)\n→ new Package { BoxId, DestinationBoxId, Items }\n→ IPackageRepository.AddAsync" as F1 #E8F0FE
 
 rectangle "<b>2. Płatność</b>\n\nPackageIntakeService.RequestPaymentAsync\n→ IPaymentGateway.InitiatePaymentAsync\n\nPackageIntakeService.ConfirmPaymentAsync\n→ IPaymentGateway.GetPaymentStatusAsync\n→ Payment.Complete() / Fail()" as F2 #E6F4EA
 
@@ -24,11 +24,14 @@ rectangle "<b>5. Realizacja</b>\n\nPackageFulfillmentService:\nAssignCourierAsyn
 
 rectangle "<b>6. Ocena i wsparcie</b>\n\nRatingService.RateCourierAsync / RateSenderAsync\n→ IPeopleService.UpdateRankAsync\n\nSupportContactService.ContactSupportAsync" as F6 #F3E8FD
 
+rectangle "<b>7. Zwrot (częściowy / pełny)</b>\n\nPackageReturnService.CreateReturnDeliveryAsync\n→ IPackageRepository.GetByIdAsync (musi być Collected)\n→ weryfikacja odbiorcy i niewykorzystanych PackageItem\n→ PackageOrderService.CreatePackageAsync (reverse routing)\n→ powiązanie: item.ReturnPackageId = returnPkg.Id\n→ powrót do standardowego cyklu logistycznego (1-5)" as F7 #FFF0F5
+
 F1 -right-> F2
 F2 -right-> F3
 F3 -down-> F4
 F4 -left-> F5
 F5 -left-> F6
+F6 -down-> F7
 
 note as Common
   Wspólny mianownik dla każdej fazy: każdy zapis kończy się tym samym wzorcem
