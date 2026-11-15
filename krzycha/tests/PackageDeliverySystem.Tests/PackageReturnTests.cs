@@ -225,6 +225,7 @@ public class PackageReturnTests
         Assert.Equal(102, result.Id);
         Assert.Equal(102, package.Items.First(i => i.Id == 2).ReturnPackageId);
         Assert.False(package.Items.First(i => i.Id == 3).IsReturned);
+    }
 
     // R06: Poprawne odwrócenie paczkomatów (origin -> destination)
     [Fact]
