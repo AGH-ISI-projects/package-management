@@ -76,6 +76,7 @@ Schemat każdego opisu: przygotowanie → akcja → weryfikacja.
 - **R07 – Zwrot całości**: Przygotowuje odebraną paczkę, zwraca wszystkie trzy produkty naraz, sprawdza że paczka jest oznaczona jako w całości zwrócona.
 - **R08 – Paczka z produktami**: Przygotowuje serwis zamówień i dwa produkty, tworzy paczkę z tą listą, sprawdza że produkty są w paczce (z nazwami i cenami) i że paczka została zapisana.
 - **R09 – Dodanie produktu**: Tworzy pustą paczkę, dodaje do niej produkt, sprawdza że jest na liście z poprawną nazwą, ceną i przypisaniem do paczki.
+- **R10 – Brak wolnej skrytki**: Przygotowuje odebraną paczkę z produktem i serwis zamówień, który przy tworzeniu paczki zwrotnej zgłasza brak wolnej skrytki w paczkomacie. Próbuje zwrócić produkt, sprawdza że jest błąd, produkt nie został oznaczony jako zwrócony, a nic nie zostało zapisane.
 
 ## PackageLifecycleTests
 
