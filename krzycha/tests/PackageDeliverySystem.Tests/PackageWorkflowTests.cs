@@ -6,18 +6,26 @@ using Xunit;
 namespace PackageDeliverySystem.Tests;
 
 /// <summary>
-/// Zestaw testów procesowych i reguł biznesowych podzielony według diagramów sekwencji (/docs/nowe/sekwencje)
-/// odpowiadających kolejnym etapom działania systemu:
-/// - ETAP 0: Scenariusz przekrojowy E2E (Diagramy 01-05)
+/// Kompletny zestaw testów procesowych i reguł biznesowych systemu przesyłek kurierskich,
+/// opracowany zgodnie z wymaganiami projektowymi (weryfikacja procesu nadania/dostarczenia,
+/// sytuacje awaryjne oraz moduł zwrotów częściowych) i diagramami sekwencji:
+/// - ETAP 0: Scenariusz przekrojowy E2E (Diagramy 01–05)
 /// - ETAP 1: Zamówienie i płatność (Diagram 01: 01-order-and-payment)
-/// - ETAP 2: Potwierdzenie depozytu (Diagram 02: 02-deposit-confirmation)
-/// - ETAP 3: Decyzja operatora (Diagram 03: 03-operator-accept-reject)
+/// - ETAP 2: Potwierdzenie depozytu w paczkomacie (Diagram 02: 02-deposit-confirmation)
+/// - ETAP 3: Weryfikacja i decyzja operatora (Diagram 03: 03-operator-accept-reject)
 /// - ETAP 4: Transport i doręczenie kurierskie (Diagram 04: 04-courier-pickup-delivery)
 /// - ETAP 5: Odbiór przesyłki i ocena (Diagram 05: 05-customer-collect-and-rate)
 /// - ETAP 6: Proces zwrotu produktów (Diagram 06: 06-return-process)
+///
+/// Każdy test zorganizowano w czytelnym podziale na trzy sekcje:
+/// 1) Przygotowanie (Arrange) - ustawienie systemu w odpowiednim stanie
+/// 2) Właściwy test (Act) - wołanie odpowiednich metod w ramach scenariusza testowego
+/// 3) Weryfikacja rezultatu (Assert) - sprawdzenie stanu i rezultatów
 /// </summary>
 public class PackageWorkflowTests
 {
+    #region Pomocnicze metody fabrykujące dla testów
+
     private static void MakeReadyForAcceptance(Package package)
     {
         package.ConfirmDeposit();
@@ -69,15 +77,14 @@ public class PackageWorkflowTests
         return package;
     }
 
-    // =========================================================================
-    // ETAP 0: SCENARIUSZ PRZEKROJOWY (END-TO-END CAŁEGO CYKLU ŻYCIA)
-    // Łączy w jednym spójnym przepływie diagramy 01 -> 02 -> 03 -> 04 -> 05
-    // =========================================================================
+    #endregion
+
+    #region ETAP 0: Scenariusz przekrojowy E2E (Diagramy 01–05)
 
     [Fact]
     public async Task WF01_FullLifecycle_FromOrderToCollectionAndRating_OrchestratesAcrossAllServicesSuccessfully()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepoMock = new Mock<IPackageRepository>();
         var boxRepoMock = new Mock<IBoxRepository>();
         var peopleServiceMock = new Mock<IPeopleService>();
@@ -140,38 +147,36 @@ public class PackageWorkflowTests
         var fulfillmentService = new PackageFulfillmentService(packageRepoMock.Object, notificationServiceMock.Object, peopleServiceMock.Object);
         var ratingService = new RatingService(packageRepoMock.Object, peopleServiceMock.Object);
 
-        // Test
-        // Krok 1: Zamówienie przesyłki z produktami
+        // 2. Właściwy test (Act)
+        // Krok 1: Złożenie zamówienia z produktami
         var items = new[] { new PackageItem { Name = "Słuchawki bezprzewodowe", Price = 249.00m } };
         var createdPackage = await orderService.CreatePackageAsync(senderId, recipientId, originLockerId, destinationLockerId, BoxSize.Medium, items);
 
-        // Krok 2: Opłacenie przesyłki
+        // Krok 2: Płatność
         var paymentRef = await intakeService.RequestPaymentAsync(createdPackage.Id, "sklep@example.com", 14.99m);
         await intakeService.ConfirmPaymentAsync(createdPackage.Id);
 
-        // Krok 3: Fizyczne potwierdzenie depozytu przez kuriera
+        // Krok 3: Potwierdzenie fizycznego włożenia do skrytki przez kuriera
         await intakeService.ConfirmDepositAsync(createdPackage.Id, courierId);
 
-        // Krok 4: Weryfikacja i akceptacja paczki przez operatora
+        // Krok 4: Akceptacja przesyłki przez operatora
         await acceptanceService.AcceptPackageAsync(createdPackage.Id, operatorId, originBoxId);
 
-        // Krok 5: Przypisanie kuriera transportowego
+        // Krok 5: Przypisanie kuriera i rozpoczęcie transportu
         await fulfillmentService.AssignCourierAsync(createdPackage.Id, courierId);
-
-        // Krok 6: Podjęcie paczki ze skrytki (Prepare -> Ship)
         await fulfillmentService.ShipPackageAsync(createdPackage.Id);
 
-        // Krok 7: Doręczenie do paczkomatu docelowego i wygenerowanie kodu PIN
+        // Krok 6: Doręczenie do paczkomatu docelowego i wygenerowanie kodu odbioru
         await fulfillmentService.DeliverPackageAsync(createdPackage.Id);
 
-        // Krok 8: Odbiór paczki przez klienta kodem PIN
+        // Krok 7: Odbiór paczki przez klienta
         await fulfillmentService.CollectPackageAsync(createdPackage.Id, recipientId, createdPackage.PickupCode!);
 
-        // Krok 9: Ocena kuriera i nadawcy przez klienta
+        // Krok 8: Ocena kuriera i nadawcy
         await ratingService.RateCourierAsync(createdPackage.Id, recipientId, 5);
         await ratingService.RateSenderAsync(createdPackage.Id, recipientId, 5);
 
-        // Weryfikacja rezultatu
+        // 3. Weryfikacja rezultatu (Assert)
         Assert.NotNull(createdPackage);
         Assert.Equal(PackageStatus.Collected, createdPackage.Status);
         Assert.Equal(originBoxId, createdPackage.BoxId);
@@ -204,15 +209,14 @@ public class PackageWorkflowTests
         notificationServiceMock.Verify(n => n.NotifyAsync("system", It.IsAny<string>()), Times.AtLeast(6));
     }
 
-    // =========================================================================
-    // ETAP 1: ZAMÓWIENIE I PŁATNOŚĆ (DIAGRAM 01: 01-order-and-payment)
-    // =========================================================================
+    #endregion
 
-    // Diagram 01: alt no free box at origin / alt no free box at destination
+    #region ETAP 1: Zamówienie i płatność (Diagram 01: 01-order-and-payment)
+
     [Fact]
     public async Task WF02_OrderPhase_WhenNoFreeBoxAtOriginOrDestination_FailsAtomicallyWithoutCreatingPackage()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepoMock = new Mock<IPackageRepository>();
         var boxRepoMock = new Mock<IBoxRepository>();
         var peopleServiceMock = new Mock<IPeopleService>();
@@ -220,35 +224,34 @@ public class PackageWorkflowTests
         peopleServiceMock.Setup(p => p.GetUserAsync(10)).ReturnsAsync(new User { Id = 10 });
         peopleServiceMock.Setup(p => p.GetUserAsync(20)).ReturnsAsync(new User { Id = 20 });
 
-        // Przypadek A: Brak wolnej skrytki w paczkomacie nadawczym (origin)
         boxRepoMock.Setup(b => b.FindFreeBoxAsync(1, BoxSize.Large, null)).ReturnsAsync((Box?)null);
 
         var orderService = new PackageOrderService(packageRepoMock.Object, boxRepoMock.Object, peopleServiceMock.Object);
 
-        // Test
+        // 2. Właściwy test (Act)
+        // Brak skrytki w paczkomacie nadawczym
         var exOrigin = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             orderService.CreatePackageAsync(10, 20, 1, 2, BoxSize.Large));
 
-        // Przypadek B: Brak skrytki w paczkomacie docelowym (destination)
         boxRepoMock.Setup(b => b.FindFreeBoxAsync(1, BoxSize.Medium, null))
             .ReturnsAsync(new Box { Id = 101, ParcelLockerId = 1 });
         boxRepoMock.Setup(b => b.FindFreeBoxAsync(2, BoxSize.Medium, 101))
             .ReturnsAsync((Box?)null);
 
+        // Brak skrytki w paczkomacie docelowym
         var exDestination = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             orderService.CreatePackageAsync(10, 20, 1, 2, BoxSize.Medium));
 
-        // Weryfikacja rezultatu
+        // 3. Weryfikacja rezultatu (Assert)
         Assert.Contains("No free Large box at the chosen origin locker", exOrigin.Message);
         Assert.Contains("No free Medium box at the chosen destination locker", exDestination.Message);
         packageRepoMock.Verify(r => r.AddAsync(It.IsAny<Package>()), Times.Never);
     }
 
-    // Diagram 01: alt Failed -> Retry -> Completed
     [Fact]
     public async Task WF10_RequestPaymentAndConfirm_FailureAndRetryFlow_CompletesSuccessfully()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepoMock = new Mock<IPackageRepository>();
         var paymentGatewayMock = new Mock<IPaymentGateway>();
         var notificationMock = new Mock<INotificationService>();
@@ -269,17 +272,15 @@ public class PackageWorkflowTests
         paymentGatewayMock.Setup(g => g.GetPaymentStatusAsync("REF-FAIL-1")).ReturnsAsync(PaymentStatus.Failed);
         paymentGatewayMock.Setup(g => g.GetPaymentStatusAsync("REF-SUCCESS-2")).ReturnsAsync(PaymentStatus.Completed);
 
-        // Test
-        // Próba 1: Porażka bramki
+        // 2. Właściwy test (Act)
         var ref1 = await intakeService.RequestPaymentAsync(1, "user@example.com", 25.00m);
         await intakeService.ConfirmPaymentAsync(1);
         var statusAfterFail = package.Payment?.Status;
 
-        // Próba 2: Ponowienie zakończone sukcesem
         var ref2 = await intakeService.RequestPaymentAsync(1, "user@example.com", 25.00m);
         await intakeService.ConfirmPaymentAsync(1);
 
-        // Weryfikacja rezultatu
+        // 3. Weryfikacja rezultatu (Assert)
         Assert.Equal("REF-FAIL-1", ref1);
         Assert.Equal(PaymentStatus.Failed, statusAfterFail);
         Assert.Equal("REF-SUCCESS-2", ref2);
@@ -292,11 +293,10 @@ public class PackageWorkflowTests
             It.Is<string>(s => s.Contains("Payment for package 1 has been confirmed."))), Times.Once);
     }
 
-    // Diagram 01: Idempotentność potwierdzenia płatności
     [Fact]
     public async Task WF14_ConfirmPaymentAsync_WhenAlreadyCompleted_IsIdempotent()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var package = new Package { Id = 1 };
         var payment = new Payment
         {
@@ -321,25 +321,91 @@ public class PackageWorkflowTests
             notificationMock.Object,
             peopleMock.Object);
 
-        // Test
+        // 2. Właściwy test (Act)
         await intakeService.ConfirmPaymentAsync(1);
 
-        // Weryfikacja rezultatu
+        // 3. Weryfikacja rezultatu (Assert)
         Assert.Equal(PaymentStatus.Completed, package.Payment.Status);
         paymentGatewayMock.Verify(g => g.GetPaymentStatusAsync(It.IsAny<string>()), Times.Never);
         packageRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Package>()), Times.Never);
         notificationMock.Verify(n => n.NotifyAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
-    // =========================================================================
-    // ETAP 2: POTWIERDZENIE DEPOZYTU W PACZKOMACIE (DIAGRAM 02: 02-deposit-confirmation)
-    // =========================================================================
+    [Fact]
+    public async Task WF22_OrderPhase_SameOriginAndDestinationLocker_ExcludesOriginBoxFromDestinationSelection()
+    {
+        // 1. Przygotowanie (Arrange)
+        var peopleServiceMock = new Mock<IPeopleService>();
+        var boxRepoMock = new Mock<IBoxRepository>();
+        var packageRepoMock = new Mock<IPackageRepository>();
 
-    // Diagram 02: alt box is empty -> ReportMissingDepositAsync
+        const int sameLockerId = 5;
+        var originBox = new Box { Id = 101, ParcelLockerId = sameLockerId, Size = BoxSize.Medium };
+        var destBox = new Box { Id = 102, ParcelLockerId = sameLockerId, Size = BoxSize.Medium };
+
+        peopleServiceMock.Setup(p => p.GetUserAsync(1)).ReturnsAsync(new User { Id = 1 });
+        peopleServiceMock.Setup(p => p.GetUserAsync(2)).ReturnsAsync(new User { Id = 2 });
+
+        boxRepoMock.Setup(b => b.FindFreeBoxAsync(sameLockerId, BoxSize.Medium, null))
+            .ReturnsAsync(originBox);
+        boxRepoMock.Setup(b => b.FindFreeBoxAsync(sameLockerId, BoxSize.Medium, originBox.Id))
+            .ReturnsAsync(destBox);
+
+        var service = new PackageOrderService(packageRepoMock.Object, boxRepoMock.Object, peopleServiceMock.Object);
+
+        // 2. Właściwy test (Act)
+        var package = await service.CreatePackageAsync(1, 2, sameLockerId, sameLockerId, BoxSize.Medium);
+
+        // 3. Weryfikacja rezultatu (Assert)
+        Assert.Equal(101, package.BoxId);
+        Assert.Equal(102, package.DestinationBoxId);
+        Assert.NotEqual(package.BoxId, package.DestinationBoxId);
+        boxRepoMock.Verify(b => b.FindFreeBoxAsync(sameLockerId, BoxSize.Medium, originBox.Id), Times.Once);
+    }
+
+    [Fact]
+    public async Task WF23_PaymentPhase_RequestPayment_WhenAlreadyCompleted_ThrowsInvalidOperationException()
+    {
+        // 1. Przygotowanie (Arrange)
+        var packageRepo = new Mock<IPackageRepository>();
+        var service = new PackageIntakeService(
+            packageRepo.Object, Mock.Of<IPaymentGateway>(), Mock.Of<INotificationService>(), Mock.Of<IPeopleService>());
+
+        var package = new Package { Id = 1 };
+        package.Payment = new Payment { PackageId = 1, PayerEmail = "paid@ex.com", Amount = 15m };
+        package.Payment.Complete();
+
+        packageRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(package);
+
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RequestPaymentAsync(1, "another@ex.com", 15m));
+
+        Assert.Equal("This package has already been paid for.", ex.Message);
+    }
+
+    [Fact]
+    public void WF29_OrderPhase_Cancel_FromOrderedStage_TransitionsToCancelled()
+    {
+        // 1. Przygotowanie (Arrange)
+        var package = new Package { Id = 1 };
+        Assert.Equal(PackageStatus.Ordered, package.Status);
+
+        // 2. Właściwy test (Act)
+        package.Cancel();
+
+        // 3. Weryfikacja rezultatu (Assert)
+        Assert.Equal(PackageStatus.Cancelled, package.Status);
+    }
+
+    #endregion
+
+    #region ETAP 2: Potwierdzenie depozytu (Diagram 02: 02-deposit-confirmation)
+
     [Fact]
     public async Task WF03_DepositPhase_WhenCourierFindsBoxEmpty_CancelsPackageAndNotifiesSender()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepoMock = new Mock<IPackageRepository>();
         var peopleServiceMock = new Mock<IPeopleService>();
         var notificationServiceMock = new Mock<INotificationService>();
@@ -364,10 +430,10 @@ public class PackageWorkflowTests
             notificationServiceMock.Object,
             peopleServiceMock.Object);
 
-        // Test
+        // 2. Właściwy test (Act)
         await intakeService.ReportMissingDepositAsync(packageId: 15, courierId: 7);
 
-        // Weryfikacja rezultatu
+        // 3. Weryfikacja rezultatu (Assert)
         Assert.Equal(PackageStatus.Cancelled, package.Status);
         packageRepoMock.Verify(r => r.UpdateAsync(package), Times.Once);
         notificationServiceMock.Verify(n => n.NotifyAsync("system",
@@ -375,11 +441,10 @@ public class PackageWorkflowTests
             Times.Once);
     }
 
-    // Diagram 02: fallback: nobody checks in time -> ProcessMissedDepositsAsync
     [Fact]
     public async Task WF04_DepositPhase_WhenSenderMisses48hDeadline_BackgroundJobCancelsPackage()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepoMock = new Mock<IPackageRepository>();
         var notificationServiceMock = new Mock<INotificationService>();
 
@@ -398,10 +463,10 @@ public class PackageWorkflowTests
             notificationServiceMock.Object,
             Mock.Of<IPeopleService>());
 
-        // Test
+        // 2. Właściwy test (Act)
         await intakeService.ProcessMissedDepositsAsync();
 
-        // Weryfikacja rezultatu
+        // 3. Weryfikacja rezultatu (Assert)
         Assert.Equal(PackageStatus.Cancelled, expiredPackage.Status);
         packageRepoMock.Verify(r => r.UpdateAsync(expiredPackage), Times.Once);
         notificationServiceMock.Verify(n => n.NotifyAsync("system",
@@ -409,15 +474,29 @@ public class PackageWorkflowTests
             Times.Once);
     }
 
-    // =========================================================================
-    // ETAP 3: DECYZJA OPERATORA (DIAGRAM 03: 03-operator-accept-reject)
-    // =========================================================================
+    [Fact]
+    public void WF24_DepositPhase_ConfirmDeposit_PastDeadline_ThrowsInvalidOperationException()
+    {
+        // 1. Przygotowanie (Arrange)
+        var package = new Package
+        {
+            Id = 1,
+            DepositDeadline = DateTime.UtcNow.AddMinutes(-5)
+        };
 
-    // Diagram 03: alt Reject -> RejectPackageAsync
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
+        var ex = Assert.Throws<InvalidOperationException>(() => package.ConfirmDeposit());
+        Assert.Equal("Deposit window has expired; the order must be re-created", ex.Message);
+    }
+
+    #endregion
+
+    #region ETAP 3: Decyzja operatora (Diagram 03: 03-operator-accept-reject)
+
     [Fact]
     public async Task WF05_AcceptancePhase_OperatorRejectsPackage_TransitionsToRejectedAndBlocksDownstreamShipping()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepoMock = new Mock<IPackageRepository>();
         var notificationServiceMock = new Mock<INotificationService>();
         var peopleServiceMock = new Mock<IPeopleService>();
@@ -450,11 +529,11 @@ public class PackageWorkflowTests
             notificationServiceMock.Object,
             peopleServiceMock.Object);
 
-        // Test
+        // 2. Właściwy test (Act)
         await acceptanceService.RejectPackageAsync(packageId: 30, operatorId: 5);
         var downstreamAction = () => fulfillmentService.ShipPackageAsync(30);
 
-        // Weryfikacja rezultatu
+        // 3. Weryfikacja rezultatu (Assert)
         Assert.Equal(PackageStatus.Rejected, package.Status);
         packageRepoMock.Verify(r => r.UpdateAsync(package), Times.Once);
         notificationServiceMock.Verify(n => n.NotifyAsync("system",
@@ -462,13 +541,12 @@ public class PackageWorkflowTests
         await Assert.ThrowsAsync<InvalidOperationException>(downstreamAction);
     }
 
-    // Diagram 03: Warunki wstępne akceptacji (brak depozytu lub brak opłacenia)
     [Theory]
     [InlineData(true, false, "Cannot accept a package that was never deposited into its box")]
     [InlineData(false, true, "Cannot accept a package that has not been paid for")]
     public void WF13_Accept_Preconditions_ThrowsWhenDepositOrPaymentMissing(bool paid, bool deposited, string expectedMessage)
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var package = new Package { Id = 1 };
         if (deposited) package.ConfirmDeposit();
         if (paid)
@@ -477,29 +555,26 @@ public class PackageWorkflowTests
             package.Payment.Complete();
         }
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
         var ex = Assert.Throws<InvalidOperationException>(() => package.Accept());
 
-        // Weryfikacja rezultatu
         Assert.Equal(expectedMessage, ex.Message);
         Assert.Equal(PackageStatus.Ordered, package.Status);
         Assert.Null(package.AcceptedAt);
     }
 
-    // Diagram 03: Blokada przypisania kuriera i operatora przed akceptacją
     [Fact]
     public void WF16_AssignCourierAndOperator_BeforeAcceptedStage_ThrowsInvalidOperationException()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var package = new Package();
         var courier = new Courier { Id = 10, Name = "Jan", Surname = "Kowalski" };
         var op = new Operator { Id = 20, Name = "Anna", Surname = "Nowak" };
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
         var exCourier = Assert.Throws<InvalidOperationException>(() => package.AssignCourier(courier));
         var exOp = Assert.Throws<InvalidOperationException>(() => package.AssignOperator(op));
 
-        // Weryfikacja rezultatu
         Assert.Equal("Cannot assign courier to package in status Ordered", exCourier.Message);
         Assert.Equal("Cannot assign operator to package in status Ordered", exOp.Message);
         Assert.Null(package.Courier);
@@ -507,15 +582,64 @@ public class PackageWorkflowTests
         Assert.Equal(PackageStatus.Ordered, package.Status);
     }
 
-    // =========================================================================
-    // ETAP 4: TRANSPORT I DORĘCZENIE KURIERSKIE (DIAGRAM 04: 04-courier-pickup-delivery)
-    // =========================================================================
+    [Fact]
+    public async Task WF25_AcceptancePhase_BoxMismatchOrSizeTooSmall_ThrowsException()
+    {
+        // 1. Przygotowanie (Arrange)
+        var packageRepoMock = new Mock<IPackageRepository>();
+        var boxRepoMock = new Mock<IBoxRepository>();
+        var peopleMock = new Mock<IPeopleService>();
 
-    // Diagram 04: Zgubienie przesyłki w transporcie przez kuriera (Timeout SLA)
+        var acceptanceService = new PackageAcceptanceService(
+            packageRepoMock.Object,
+            boxRepoMock.Object,
+            Mock.Of<INotificationService>(),
+            peopleMock.Object);
+
+        var package = new Package { Id = 1, BoxId = 10, Size = BoxSize.Large };
+        MakeReadyForAcceptance(package);
+        var op = new Operator { Id = 5, Name = "Jan" };
+
+        packageRepoMock.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(package);
+        peopleMock.Setup(p => p.GetOperatorAsync(5)).ReturnsAsync(op);
+        boxRepoMock.Setup(b => b.GetByIdAsync(10)).ReturnsAsync(new Box { Id = 10, Size = BoxSize.Small });
+
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
+        // Niezgodność ID skrytki
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            acceptanceService.AcceptPackageAsync(1, 5, 99));
+
+        // Niezgodność rozmiaru: paczka Large w skrytce Small
+        var exSize = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            acceptanceService.AcceptPackageAsync(1, 5, 10));
+
+        Assert.Contains("cannot be accepted into a Small box", exSize.Message);
+    }
+
+    [Fact]
+    public void WF30_AcceptancePhase_Cancel_FromAcceptedStage_TransitionsToCancelled()
+    {
+        // 1. Przygotowanie (Arrange)
+        var package = new Package { Id = 1 };
+        MakeReadyForAcceptance(package);
+        package.Accept();
+        Assert.Equal(PackageStatus.Accepted, package.Status);
+
+        // 2. Właściwy test (Act)
+        package.Cancel();
+
+        // 3. Weryfikacja rezultatu (Assert)
+        Assert.Equal(PackageStatus.Cancelled, package.Status);
+    }
+
+    #endregion
+
+    #region ETAP 4: Transport i doręczenie kurierskie (Diagram 04: 04-courier-pickup-delivery)
+
     [Fact]
     public async Task WF06_ShippingPhase_PackageLostInTransitExceedingSLA_MarkedAsExpiredAndAlertsSystem()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepoMock = new Mock<IPackageRepository>();
         var notificationServiceMock = new Mock<INotificationService>();
 
@@ -546,82 +670,75 @@ public class PackageWorkflowTests
             notificationServiceMock.Object,
             Mock.Of<IPeopleService>());
 
-        // Test
+        // 2. Właściwy test (Act)
         await acceptanceService.ProcessExpiredPackagesAsync();
 
-        // Weryfikacja rezultatu
+        // 3. Weryfikacja rezultatu (Assert)
         Assert.Equal(PackageStatus.Expired, lostInTransitPackage.Status);
         packageRepoMock.Verify(r => r.UpdateAsync(lostInTransitPackage), Times.Once);
         notificationServiceMock.Verify(n => n.NotifyAsync("system",
             It.Is<string>(msg => msg.Contains("EXPIRED due to inactivity"))), Times.Once);
     }
 
-    // Diagram 04: Blokada anulowania przesyłki po wysłaniu (w transporcie)
     [Fact]
     public void WF09_Cancel_AfterShipped_ThrowsInvalidOperationException()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var package = new Package { Id = 1 };
         MakeReadyForAcceptance(package);
         package.Accept();
         package.Prepare();
         package.Ship();
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
         var ex = Assert.Throws<InvalidOperationException>(() => package.Cancel());
 
-        // Weryfikacja rezultatu
         Assert.Equal("Cannot cancel package in status Shipped", ex.Message);
         Assert.Equal(PackageStatus.Shipped, package.Status);
     }
 
-    // Diagram 04: Blokada doręczenia bez uprzedniej wysyłki (naruszenie kolejności)
     [Fact]
     public void WF11_Deliver_WhenPackageInInvalidStatus_ThrowsInvalidOperationException()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var package = new Package { Id = 1 };
         MakeReadyForAcceptance(package);
         package.Accept();
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
         var ex = Assert.Throws<InvalidOperationException>(() => package.Deliver());
 
-        // Weryfikacja rezultatu
         Assert.Equal("Cannot deliver package in status Accepted", ex.Message);
         Assert.Equal(PackageStatus.Accepted, package.Status);
         Assert.Null(package.DeliveredAt);
         Assert.Null(package.PickupCode);
     }
 
-    // Diagram 04: Blokada odrzucenia przesyłki po wysłaniu
     [Fact]
     public void WF12_Reject_AfterShipped_ThrowsInvalidOperationException()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var package = new Package { Id = 1, BoxId = 10, Size = BoxSize.Small };
         MakeReadyForAcceptance(package);
         package.Accept();
         package.Prepare();
         package.Ship();
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
         var ex = Assert.Throws<InvalidOperationException>(() => package.Reject());
 
-        // Weryfikacja rezultatu
         Assert.Equal("Cannot reject package in status Shipped", ex.Message);
         Assert.Equal(PackageStatus.Shipped, package.Status);
     }
 
-    // =========================================================================
-    // ETAP 5: ODBIÓR I OCENA (DIAGRAM 05: 05-customer-collect-and-rate)
-    // =========================================================================
+    #endregion
 
-    // Diagram 05: alt package.RecipientId != userId / else wrong code
+    #region ETAP 5: Odbiór i ocena (Diagram 05: 05-customer-collect-and-rate)
+
     [Fact]
     public async Task WF07_DeliveryPhase_WrongRecipientOrInvalidPin_BlocksCollectionAtomically()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepoMock = new Mock<IPackageRepository>();
         const int realRecipientId = 20;
         const int impostorUserId = 999;
@@ -650,25 +767,25 @@ public class PackageWorkflowTests
 
         var wrongPin = deliveredPackage.PickupCode == "123456" ? "654321" : "123456";
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
+        // Próba odbioru przez osobę nieuprawnioną
         var exImpostor = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fulfillmentService.CollectPackageAsync(55, impostorUserId, deliveredPackage.PickupCode!));
 
+        // Próba odbioru ze złym kodem odbioru
         var exPin = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fulfillmentService.CollectPackageAsync(55, realRecipientId, wrongPin));
 
-        // Weryfikacja rezultatu
         Assert.Equal("Only this package's recipient can collect it", exImpostor.Message);
         Assert.Equal("Invalid pickup code", exPin.Message);
         Assert.Equal(PackageStatus.Delivered, deliveredPackage.Status);
         Assert.Null(deliveredPackage.CollectedAt);
     }
 
-    // Diagram 05: Weryfikacja reguł oceniania (zakres ocen, status Collected, uprawnienia)
     [Fact]
     public async Task WF15_RateCourierAsync_ValidatesScoreBounds_Recipient_AndPostCollectionStatus()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepoMock = new Mock<IPackageRepository>();
         var peopleMock = new Mock<IPeopleService>();
         var ratingService = new RatingService(packageRepoMock.Object, peopleMock.Object);
@@ -681,7 +798,7 @@ public class PackageWorkflowTests
         package.Deliver();
         packageRepoMock.Setup(r => r.GetByIdAsync(10)).ReturnsAsync(package);
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
         var exLow = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => ratingService.RateCourierAsync(10, 42, 0));
         var exHigh = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => ratingService.RateCourierAsync(10, 42, 6));
         var exUncollected = await Assert.ThrowsAsync<InvalidOperationException>(() => ratingService.RateCourierAsync(10, 42, 5));
@@ -691,7 +808,6 @@ public class PackageWorkflowTests
 
         await ratingService.RateCourierAsync(10, 42, 4);
 
-        // Weryfikacja rezultatu
         Assert.Contains("Score must be between 1 and 5", exLow.Message);
         Assert.Contains("Score must be between 1 and 5", exHigh.Message);
         Assert.Equal("Can only rate a delivery after it has been collected", exUncollected.Message);
@@ -699,15 +815,72 @@ public class PackageWorkflowTests
         peopleMock.Verify(p => p.UpdateRankAsync(88, 4), Times.Once);
     }
 
-    // =========================================================================
-    // ETAP 6: PROCES ZWROTU PRODUKTÓW (DIAGRAM 06: 06-return-process)
-    // =========================================================================
+    [Fact]
+    public async Task WF26_RateCourier_WhenNoCourierAssigned_ThrowsInvalidOperationException()
+    {
+        // 1. Przygotowanie (Arrange)
+        var packageRepo = new Mock<IPackageRepository>();
+        var service = new RatingService(packageRepo.Object, Mock.Of<IPeopleService>());
 
-    // Diagram 06: Odpytanie o pozycje -> Zgłoszenie zwrotu -> Automatyczna rezerwacja powrotna
+        var package = new Package
+        {
+            Id = 1,
+            RecipientId = 25,
+            CourierId = null
+        };
+        package.ConfirmDeposit();
+        package.Payment = new Payment { PackageId = 1, PayerEmail = "test@ex.com", Amount = 10 };
+        package.Payment.Complete();
+        package.Accept();
+        package.Prepare();
+        package.Ship();
+        package.Deliver();
+        package.Collect(package.PickupCode!);
+
+        packageRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(package);
+
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RateCourierAsync(1, raterUserId: 25, score: 4));
+
+        Assert.Equal("This package has no courier to rate", ex.Message);
+    }
+
+    [Fact]
+    public void WF31_DeliveryPhase_UncollectedPackagePast48Hours_CustomerFailsToCollect_TransitionsToExpired()
+    {
+        // 1. Przygotowanie (Arrange)
+        var package = new Package
+        {
+            Id = 1,
+            BoxId = 10,
+            RecipientId = 2
+        };
+        MakeReadyForAcceptance(package);
+        package.Accept();
+        package.Prepare();
+        package.Ship();
+        package.Deliver();
+        Assert.Equal(PackageStatus.Delivered, package.Status);
+
+        typeof(Package).GetProperty(nameof(Package.ExpiredAt))?
+            .SetValue(package, DateTime.UtcNow.AddHours(-1));
+
+        // 2. Właściwy test (Act)
+        package.Expire();
+
+        // 3. Weryfikacja rezultatu (Assert)
+        Assert.Equal(PackageStatus.Expired, package.Status);
+    }
+
+    #endregion
+
+    #region ETAP 6: Proces zwrotu produktów (Diagram 06: 06-return-process)
+
     [Fact]
     public async Task WF08_ReturnPhase_CollectedPackage_CustomerReturnsPartialItems_ReversesRoutingAndIntegratesLogistics()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepoMock = new Mock<IPackageRepository>();
         var boxRepoMock = new Mock<IBoxRepository>();
         var orderServiceMock = new Mock<IPackageOrderService>();
@@ -777,20 +950,20 @@ public class PackageWorkflowTests
             orderServiceMock.Object,
             notificationServiceMock.Object);
 
-        // Test
-        // Krok 1: Pobranie listy produktów możliwych do zwrotu
+        // 2. Właściwy test (Act)
+        // Krok 1: Pobranie pozycji przed zwrotem
         var availableBefore = await returnService.GetAvailableItemsForReturnAsync(originalPackageId, customerRecipientId);
 
-        // Krok 2: Zgłoszenie zwrotu wybranego produktu (Id = 2)
+        // Krok 2: Utworzenie przesyłki zwrotnej dla 1 przedmiotu
         var createdReturn = await returnService.CreateReturnDeliveryAsync(
             originalPackageId,
             customerRecipientId,
             itemIds: new[] { 2 });
 
-        // Krok 3: Ponowne odpytanie o zwracalne pozycje
+        // Krok 3: Ponowne pobranie pozycji po zwrocie
         var availableAfter = await returnService.GetAvailableItemsForReturnAsync(originalPackageId, customerRecipientId);
 
-        // Weryfikacja rezultatu
+        // 3. Weryfikacja rezultatu (Assert)
         Assert.Equal(3, availableBefore.Count);
         Assert.NotNull(createdReturn);
         Assert.Equal(888, createdReturn.Id);
@@ -820,7 +993,6 @@ public class PackageWorkflowTests
             It.Is<string>(s => s.Contains("Return delivery 888 created"))), Times.Once);
     }
 
-    // Diagram 06: Blokada zwrotu przed odbiorem paczki
     [Theory]
     [InlineData(PackageStatus.Ordered)]
     [InlineData(PackageStatus.Accepted)]
@@ -828,7 +1000,7 @@ public class PackageWorkflowTests
     [InlineData(PackageStatus.Shipped)]
     public async Task WF17_CreateReturnDelivery_BeforeCollection_ThrowsInvalidOperationException(PackageStatus status)
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepo = new Mock<IPackageRepository>();
         var package = new Package { Id = 1, RecipientId = 20, SenderId = 10, BoxId = 101, DestinationBoxId = 202 };
         package.Items.Add(new PackageItem { Id = 1, PackageId = 1, Name = "Produkt" });
@@ -846,64 +1018,58 @@ public class PackageWorkflowTests
         packageRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(package);
         var returnService = new PackageReturnService(packageRepo.Object, Mock.Of<IBoxRepository>(), Mock.Of<IPackageOrderService>(), Mock.Of<INotificationService>());
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             returnService.CreateReturnDeliveryAsync(1, 20, new[] { 1 }));
 
-        // Weryfikacja rezultatu
         Assert.Contains("Only collected packages can be returned", ex.Message);
     }
 
-    // Diagram 06: Blokada zwrotu przez osobę niebędącą odbiorcą
     [Fact]
     public async Task WF18_CreateReturnDelivery_ByNonRecipient_ThrowsInvalidOperationException()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepo = new Mock<IPackageRepository>();
         var package = CreateCollectedPackageWithItems(packageId: 1, recipientId: 20);
         packageRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(package);
 
         var returnService = new PackageReturnService(packageRepo.Object, Mock.Of<IBoxRepository>(), Mock.Of<IPackageOrderService>(), Mock.Of<INotificationService>());
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             returnService.CreateReturnDeliveryAsync(1, customerId: 999, new[] { 1 }));
 
-        // Weryfikacja rezultatu
         Assert.Equal("Only the package recipient can request a return.", ex.Message);
     }
 
-    // Diagram 06: Blokada ponownego zwrotu tego samego przedmiotu
     [Fact]
     public async Task WF19_CreateReturnDelivery_ItemAlreadyReturned_ThrowsInvalidOperationException()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepo = new Mock<IPackageRepository>();
         var package = CreateCollectedPackageWithItems(packageId: 1, recipientId: 20);
-        package.Items.First(i => i.Id == 1).ReturnPackageId = 55; // Już zwrócony
+        package.Items.First(i => i.Id == 1).ReturnPackageId = 55;
         packageRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(package);
 
         var returnService = new PackageReturnService(packageRepo.Object, Mock.Of<IBoxRepository>(), Mock.Of<IPackageOrderService>(), Mock.Of<INotificationService>());
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             returnService.CreateReturnDeliveryAsync(1, 20, new[] { 1 }));
 
-        // Weryfikacja rezultatu
         Assert.Equal("One or more selected items have already been included in a return delivery.", ex.Message);
     }
 
-    // Diagram 06: Obsługa wielu zwrotów częściowych w czasie
     [Fact]
     public async Task WF20_CreateReturnDelivery_SequentialReturns_AllowsReturningSecondItemInSeparatePackage()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepo = new Mock<IPackageRepository>();
         var boxRepo = new Mock<IBoxRepository>();
         var orderService = new Mock<IPackageOrderService>();
         var package = CreateCollectedPackageWithItems(packageId: 1, senderId: 10, recipientId: 20);
 
-        package.Items.First(i => i.Id == 1).ReturnPackageId = 101; // Produkt 1 zwrócony wcześniej
+        package.Items.First(i => i.Id == 1).ReturnPackageId = 101;
 
         boxRepo.Setup(b => b.GetByIdAsync(202)).ReturnsAsync(new Box { Id = 202, ParcelLockerId = 2 });
         boxRepo.Setup(b => b.GetByIdAsync(101)).ReturnsAsync(new Box { Id = 101, ParcelLockerId = 1 });
@@ -915,21 +1081,20 @@ public class PackageWorkflowTests
 
         var returnService = new PackageReturnService(packageRepo.Object, boxRepo.Object, orderService.Object, Mock.Of<INotificationService>());
 
-        // Test
+        // 2. Właściwy test (Act)
         var result = await returnService.CreateReturnDeliveryAsync(1, 20, new[] { 2 });
 
-        // Weryfikacja rezultatu
+        // 3. Weryfikacja rezultatu (Assert)
         Assert.NotNull(result);
         Assert.Equal(102, result.Id);
         Assert.Equal(102, package.Items.First(i => i.Id == 2).ReturnPackageId);
         Assert.False(package.Items.First(i => i.Id == 3).IsReturned);
     }
 
-    // Diagram 06: Brak wolnej skrytki na zwrot - atomowy rollback i nienaruszalność stanu
     [Fact]
     public async Task WF21_CreateReturnDelivery_WhenNoFreeBoxAvailable_RollsBackAndItemsRemainUnreturned()
     {
-        // Przygotowanie
+        // 1. Przygotowanie (Arrange)
         var packageRepo = new Mock<IPackageRepository>();
         var boxRepo = new Mock<IBoxRepository>();
         var orderService = new Mock<IPackageOrderService>();
@@ -944,14 +1109,83 @@ public class PackageWorkflowTests
 
         var returnService = new PackageReturnService(packageRepo.Object, boxRepo.Object, orderService.Object, Mock.Of<INotificationService>());
 
-        // Test
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => returnService.CreateReturnDeliveryAsync(1, 20, new[] { 1 }));
 
-        // Weryfikacja rezultatu
         Assert.Contains("No free Medium box", ex.Message);
         Assert.False(package.Items.First(i => i.Id == 1).IsReturned);
         Assert.Null(package.Items.First(i => i.Id == 1).ReturnPackageId);
         packageRepo.Verify(r => r.UpdateAsync(It.IsAny<Package>()), Times.Never);
     }
+
+    [Fact]
+    public async Task WF27_ReturnPhase_GetAvailableItems_ByNonRecipient_ThrowsInvalidOperationException()
+    {
+        // 1. Przygotowanie (Arrange)
+        var packageRepo = new Mock<IPackageRepository>();
+        var service = new PackageReturnService(
+            packageRepo.Object, Mock.Of<IBoxRepository>(), Mock.Of<IPackageOrderService>(), Mock.Of<INotificationService>());
+
+        var package = new Package { Id = 1, RecipientId = 42 };
+        packageRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(package);
+
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetAvailableItemsForReturnAsync(1, customerId: 999));
+
+        Assert.Equal("Only the package recipient can query returnable items.", ex.Message);
+    }
+
+    [Fact]
+    public async Task WF28_ReturnPhase_CreateReturnDelivery_EmptyItemsOrForeignItem_ThrowsArgumentException()
+    {
+        // 1. Przygotowanie (Arrange)
+        var packageRepo = new Mock<IPackageRepository>();
+        var service = new PackageReturnService(
+            packageRepo.Object, Mock.Of<IBoxRepository>(), Mock.Of<IPackageOrderService>(), Mock.Of<INotificationService>());
+
+        var package = CreateCollectedPackageWithItems(1, 10, 42, 101, 202);
+        packageRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(package);
+
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
+        // Pusta lista produktów
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.CreateReturnDeliveryAsync(1, 42, Array.Empty<int>()));
+
+        // Produkt nienależący do tej paczki
+        var exForeign = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.CreateReturnDeliveryAsync(1, 42, new[] { 999 }));
+
+        Assert.Equal("One or more selected items do not belong to the specified package.", exForeign.Message);
+    }
+
+    [Fact]
+    public async Task WF32_ReturnPhase_ReturnAllItems_SetsAreAllItemsReturnedTrue()
+    {
+        // 1. Przygotowanie (Arrange)
+        var packageRepo = new Mock<IPackageRepository>();
+        var boxRepo = new Mock<IBoxRepository>();
+        var orderService = new Mock<IPackageOrderService>();
+        var package = CreateCollectedPackageWithItems(packageId: 1, senderId: 10, recipientId: 20);
+
+        boxRepo.Setup(b => b.GetByIdAsync(202)).ReturnsAsync(new Box { Id = 202, ParcelLockerId = 2 });
+        boxRepo.Setup(b => b.GetByIdAsync(101)).ReturnsAsync(new Box { Id = 101, ParcelLockerId = 1 });
+        packageRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(package);
+
+        var returnPkg = new Package { Id = 88, SenderId = 20, RecipientId = 10 };
+        orderService.Setup(o => o.CreatePackageAsync(20, 10, 2, 1, BoxSize.Medium, null))
+            .ReturnsAsync(returnPkg);
+
+        var returnService = new PackageReturnService(packageRepo.Object, boxRepo.Object, orderService.Object, Mock.Of<INotificationService>());
+
+        // 2. Właściwy test (Act)
+        await returnService.CreateReturnDeliveryAsync(1, 20, new[] { 1, 2, 3 });
+
+        // 3. Weryfikacja rezultatu (Assert)
+        Assert.True(package.HasReturns);
+        Assert.True(package.AreAllItemsReturned);
+    }
+
+    #endregion
 }
