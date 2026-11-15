@@ -289,100 +289,124 @@ end note
 
 @enduml
 
-@startuml 06-customer-return-items
-title 06 - Customer: return items (partial / full return)
+@startuml 06-return-process
+title 06 - Customer: return items (partial or full return)
 
-actor "User\n(Customer/Recipient)" as Customer
+actor "User\n(Recipient / Customer)" as Customer
 participant "Blazor\nWeb App" as Web
 participant "PackageReturnService" as ReturnSvc
 participant "PackageOrderService" as OrderSvc
-participant "PackageRepository" as PkgRepo
-participant "BoxRepository" as BoxRepo
 database "MySQL\n(EF Core)" as DB
 queue "Hangfire\nJob Queue" as Hangfire
 
-== 1. Query available returnable items ==
-Customer -> Web: Open collected package details\nclick "Return items"
-Web -> ReturnSvc: GetAvailableItemsForReturnAsync(originalPackageId, customerId)
-ReturnSvc -> PkgRepo: GetByIdAsync(originalPackageId)
-PkgRepo -> DB: SELECT Package + Items
-DB --> PkgRepo: originalPackage
-PkgRepo --> ReturnSvc: originalPackage
+== 1. Pobranie listy produktów możliwych do zwrotu ==
 
-alt customerId != originalPackage.RecipientId
+Customer -> Web: Otwórz szczegóły odebranej paczki\n(kliknij "Zwróć produkty")
+Web -> ReturnSvc: GetAvailableItemsForReturnAsync(originalPackageId, customerId)
+ReturnSvc -> DB: SELECT Package + Items WHERE Id = originalPackageId
+DB --> ReturnSvc: originalPackage (z pozycjami Items)
+
+alt Użytkownik nie jest odbiorcą paczki (customerId != RecipientId)
     ReturnSvc --> Web: throw InvalidOperationException\n"Only the package recipient can query returnable items"
-    Web --> Customer: "Access denied"
-else recipient valid
-    ReturnSvc -> ReturnSvc: filter originalPackage.Items\nwhere !item.IsReturned
-    ReturnSvc --> Web: returnableItems list
-    Web --> Customer: display items with checkboxes
+    Web --> Customer: Komunikat: brak uprawnień
+else Poprawny odbiorca
+    ReturnSvc -> ReturnSvc: Filtruj pozycje Items:\ngdzie !item.IsReturned (ReturnPackageId == null)
+    ReturnSvc --> Web: Lista zwracalnych produktów (availableItems)
+    Web --> Customer: Wyświetlenie listy produktów z checkboxami do wyboru
 end
 
-== 2. Submit partial or full return delivery ==
-Customer -> Web: select items to return [itemIds]\n(optional: return locker, size)
-Web -> ReturnSvc: CreateReturnDeliveryAsync(originalPackageId, customerId, itemIds, originLockerId?, size?)
+== 2. Zgłoszenie zwrotu (utworzenie przesyłki powrotnej) ==
 
-ReturnSvc -> PkgRepo: GetByIdAsync(originalPackageId)
-PkgRepo -> DB: SELECT Package + Items
-DB --> PkgRepo: originalPackage
-PkgRepo --> ReturnSvc: originalPackage
+Customer -> Web: Zaznacz pozycje do zwrotu [itemIds]\n(opcjonalnie: wskaż paczkomat zwrotu i gabaryt)
+Web -> ReturnSvc: CreateReturnDeliveryAsync(originalPackageId, customerId,\nitemIds, originLockerId?, size?)
 
-alt validation failure
+ReturnSvc -> DB: SELECT originalPackage + Items
+DB --> ReturnSvc: originalPackage
+
+alt Walidacja biznesowa nie powiodła się
     note over ReturnSvc
-      Validations:
-      - itemIds is not empty
+      Warunki walidacji:
+      - itemIds nie jest puste
       - originalPackage.RecipientId == customerId
-      - originalPackage.Status == Collected
-      - all itemIds belong to package
-      - none of the selected items have IsReturned == true
-      - original package has BoxId and DestinationBoxId
+      - originalPackage.Status == Collected (tylko odebrane paczki!)
+      - wybrane produkty należą do tej paczki
+      - żaden z wybranych produktów nie był wcześniej zwrócony (!IsReturned)
     end note
     ReturnSvc --> Web: throw InvalidOperationException / ArgumentException
-    Web --> Customer: display validation error message
-else validations pass
-    ReturnSvc -> BoxRepo: GetByIdAsync(originalPackage.DestinationBoxId)
-    BoxRepo -> DB: SELECT Box
-    DB --> BoxRepo: originalDestinationBox
-    ReturnSvc -> BoxRepo: GetByIdAsync(originalPackage.BoxId)
-    BoxRepo -> DB: SELECT Box
-    DB --> BoxRepo: originalOriginBox
+    Web --> Customer: Wyświetlenie błędu walidacji
+else Walidacja pomyślna
+    ReturnSvc -> DB: Pobierz pierwotne skrytki (DestinationBoxId, BoxId)\nw celu ustalenia domyślnych paczkomatów
+    DB --> ReturnSvc: skrytki
 
     note over ReturnSvc
-      Reverse routing by default:
-      - Return Origin Locker = original destination locker (customer's pickup locker)
-      - Return Destination Locker = original origin locker (merchant's sender locker)
-      - Return Sender = original Recipient (Customer)
-      - Return Recipient = original Sender (Merchant)
-      - Size = specified or original package size
+      Automatyczne odwrócenie ról i trasy:
+      - Nadawca zwrotu = dotychczasowy odbiorca (Klient)
+      - Odbiorca zwrotu = pierwotny nadawca (Sklep / Sprzedawca)
+      - Paczkomat nadawczy zwrotu = paczkomat odbiorczy klienta
+      - Paczkomat docelowy zwrotu = paczkomat nadawczy sklepu
     end note
 
-    ReturnSvc -> OrderSvc: CreatePackageAsync(senderId: originalPackage.RecipientId,\nrecipientId: originalPackage.SenderId,\noriginLockerId, destinationLockerId, returnSize)
-    OrderSvc -> DB: FindFreeBoxAsync() for origin & destination
-    DB --> OrderSvc: boxes allocated
-    OrderSvc -> DB: INSERT Package(Status=Ordered)
-    DB --> OrderSvc: returnPackage
-    OrderSvc --> ReturnSvc: returnPackage
+    ReturnSvc -> OrderSvc: CreatePackageAsync(senderId: originalRecipientId,\nrecipientId: originalSenderId, returnOriginLockerId,\nreturnDestLockerId, returnSize)
+    OrderSvc -> DB: FindFreeBoxAsync(returnOriginLockerId, returnSize)
+    DB --> OrderSvc: originBox / null
 
-    ReturnSvc -> ReturnSvc: returnPackage.OriginalPackageId = originalPackage.Id
-    loop each item in itemsToReturn
-        ReturnSvc -> ReturnSvc: item.ReturnPackageId = returnPackage.Id\n(item.IsReturned becomes true)
+    alt brak wolnej skrytki w paczkomacie zwrotu (origin)
+        OrderSvc --> ReturnSvc: throw InvalidOperationException\n"No free box at return locker"
+        ReturnSvc --> Web: throw InvalidOperationException
+        Web --> Customer: "Brak wolnej skrytki w paczkomacie zwrotu - wybierz inny paczkomat/rozmiar"
+    else wolna skrytka w paczkomacie zwrotu znaleziona
+        OrderSvc -> DB: FindFreeBoxAsync(returnDestLockerId, returnSize, exclude: originBox.Id)
+        DB --> OrderSvc: destinationBox / null
+
+        alt brak wolnej skrytki w paczkomacie sklepu (destination)
+            OrderSvc --> ReturnSvc: throw InvalidOperationException\n"No free box at destination locker"
+            ReturnSvc --> Web: throw InvalidOperationException
+            Web --> Customer: "Brak wolnej skrytki w paczkomacie sklepu"
+        else obie skrytki zarezerwowane (origin + destination)
+            OrderSvc -> DB: INSERT Package(Status = Ordered,\nBoxId, DestinationBoxId, DepositDeadline = now + 48h)
+            DB --> OrderSvc: returnPackage
+            OrderSvc --> ReturnSvc: returnPackage
+
+            ReturnSvc -> ReturnSvc: returnPackage.OriginalPackageId = originalPackage.Id
+            loop Dla każdego zwracanego produktu
+                ReturnSvc -> ReturnSvc: item.ReturnPackageId = returnPackage.Id\n(oznaczenie jako zwrócony)
+            end
+
+            ReturnSvc -> DB: UPDATE Package (originalPackage + returnPackage + items)
+            ReturnSvc -> Hangfire: Enqueue(SendNotification\n("Return delivery created"))
+            ReturnSvc --> Web: returnPackage (Status = Ordered)
+            Web --> Customer: Potwierdzenie utworzenia zwrotu\n(kod nadania, instrukcja włożenia do skrytki)
+        end
     end
-
-    ReturnSvc -> PkgRepo: UpdateAsync(originalPackage)
-    ReturnSvc -> PkgRepo: UpdateAsync(returnPackage)
-    ReturnSvc -> DB: SaveChanges()
-    ReturnSvc -> Hangfire: Enqueue(SendNotification\n("Return delivery created"))
-    ReturnSvc --> Web: returnPackage
-    Web --> Customer: "Return delivery created! Proceed to deposit items in locker"
 end
 
-note over ReturnSvc, DB
-  Reusability & Anti-Slop Architecture:
-  The created returnPackage is a genuine reverse Package instance.
-  It moves through the standard logistics lifecycle:
-  deposit confirmation (02) -> operator acceptance (03) ->
-  courier shipping & delivery (04) -> merchant collection (05).
-  No duplicate courier or locker return methods needed.
+== 3. Dalszy cykl życia przesyłki zwrotnej (Identyczny ze zwykłą paczką) ==
+
+note over Customer, Hangfire #LightCyan
+  <b>OD TEGO MOMENTU PROCES NICZYM NIE RÓŻNI SIĘ OD ZWYKŁEJ PACZKI</b>
+  Utworzona przesyłka (returnPackage) jest pełnoprawnym obiektem <b>Package</b> ze statusem <b>Ordered</b>.
+  System nie wymaga żadnego osobnego kuriera ani zdublowanych serwisów logistycznych.
+  Przesyłka powrotna realizuje ten sam standardowy potok co każda inna paczka:
 end note
+
+ref over Customer, Web, DB, Hangfire
+  <b>Diagram 02: Potwierdzenie depozytu (Courier: confirm deposit)</b>
+  Klient wkłada zwracane produkty do skrytki -> Kurier potwierdza obecność paczki (Package.ConfirmDeposit)
+end ref
+
+ref over Web, DB, Hangfire
+  <b>Diagram 03: Akceptacja przez operatora (Operator: accept or reject)</b>
+  Operator weryfikuje skrytkę i zatwierdza zlecenie (Package.Accept -> Status = Accepted)
+end ref
+
+ref over Web, DB, Hangfire
+  <b>Diagram 04: Transport kurierski (Courier: assign, pick up, deliver)</b>
+  Kurier podejmuje paczkę (Preparing -> Shipped) i dostarcza do paczkomatu docelowego sklepu (Delivered)
+end ref
+
+ref over Customer, Web, DB
+  <b>Diagram 05: Odbiór przez sprzedawcę (Customer/Merchant: collect)</b>
+  Pierwotny sprzedawca odbiera zwrócone towary kodem odbioru PIN (Status = Collected)
+end ref
 
 @enduml

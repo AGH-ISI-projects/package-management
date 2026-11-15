@@ -368,4 +368,33 @@ public class PackageReturnTests
         Assert.Equal(999.00m, item.Price);
         Assert.Equal(1, item.PackageId);
     }
+
+    // =========================================================================
+    // SCENARIUSZ R10: Brak wolnej skrytki w paczkomacie podczas tworzenia zwrotu
+    // =========================================================================
+    [Fact]
+    public async Task R10_CreateReturnDelivery_WhenNoFreeBoxAvailable_ThrowsInvalidOperationExceptionAndItemsRemainUnreturned()
+    {
+        // 1. Arrange
+        var (packageRepo, boxRepo, orderService, _, returnService) = CreateReturnServiceContext();
+        var package = CreateCollectedPackageWithItems(1, 10, 20, 101, 202);
+
+        packageRepo.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(package);
+        boxRepo.Setup(b => b.GetByIdAsync(202)).ReturnsAsync(new Box { Id = 202, ParcelLockerId = 2 });
+        boxRepo.Setup(b => b.GetByIdAsync(101)).ReturnsAsync(new Box { Id = 101, ParcelLockerId = 1 });
+
+        orderService.Setup(o => o.CreatePackageAsync(20, 10, 2, 1, BoxSize.Medium, null))
+            .ThrowsAsync(new InvalidOperationException("No free Medium box at the chosen origin locker - pick another locker or size"));
+
+        // 2. Act & Assert
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => returnService.CreateReturnDeliveryAsync(1, 20, new[] { 1 }));
+
+        Assert.Contains("No free Medium box", ex.Message);
+
+        var item1 = package.Items.First(i => i.Id == 1);
+        Assert.False(item1.IsReturned);
+        Assert.Null(item1.ReturnPackageId);
+        packageRepo.Verify(r => r.UpdateAsync(It.IsAny<Package>()), Times.Never);
+    }
 }
