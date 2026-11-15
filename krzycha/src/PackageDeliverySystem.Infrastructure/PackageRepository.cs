@@ -21,6 +21,9 @@ namespace PackageDeliverySystem.Infrastructure
         {
             return await _context.Packages
                 .Include(p => p.Payment)
+                .Include(p => p.Items)
+                .Include(p => p.Box)
+                .Include(p => p.DestinationBox)
                 .FirstOrDefaultAsync(p => p.Id == id);
         }
 

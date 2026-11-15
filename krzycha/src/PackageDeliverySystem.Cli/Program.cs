@@ -20,6 +20,7 @@ services.AddScoped<INotificationService, NotificationService>();
 services.AddScoped<IRatingService, RatingService>();
 services.AddScoped<ISupportContactService, SupportContactService>();
 services.AddScoped<IPackageOrderService, PackageOrderService>();
+services.AddScoped<IPackageReturnService, PackageReturnService>();
 
 var serviceProvider = services.BuildServiceProvider();
 
@@ -48,11 +49,17 @@ using (var scope = serviceProvider.CreateScope())
 
     try
     {
+        var demoItems = new[]
+        {
+            new PackageItem { Name = "Słuchawki bezprzewodowe", Price = 249.99m },
+            new PackageItem { Name = "Etui ochronne", Price = 49.99m }
+        };
+
         var package = await orderService.CreatePackageAsync(
-            sender.Id, recipient.Id, originLocker.Id, destinationLocker.Id, BoxSize.Medium);
+            sender.Id, recipient.Id, originLocker.Id, destinationLocker.Id, BoxSize.Medium, demoItems);
         var boxId = package.BoxId!.Value;
         Console.WriteLine(
-            $"Package {package.Id} ordered: box {boxId} at origin, box {package.DestinationBoxId} at destination.");
+            $"Package {package.Id} ordered with {package.Items.Count} items: box {boxId} at origin, box {package.DestinationBoxId} at destination.");
 
         var paymentReference = await intakeService.RequestPaymentAsync(package.Id, sender.Email, 14.99m);
         Console.WriteLine($"Payment requested, reference: {paymentReference}");
