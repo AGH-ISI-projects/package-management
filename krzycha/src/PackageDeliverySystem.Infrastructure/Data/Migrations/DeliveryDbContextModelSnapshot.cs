@@ -123,6 +123,9 @@ namespace PackageDeliverySystem.Infrastructure.Data.Migrations
                     b.Property<int?>("OperatorId")
                         .HasColumnType("int");
 
+                    b.Property<int?>("OriginalPackageId")
+                        .HasColumnType("int");
+
                     b.Property<string>("PickupCode")
                         .HasMaxLength(6)
                         .HasColumnType("varchar(6)");
@@ -159,11 +162,43 @@ namespace PackageDeliverySystem.Infrastructure.Data.Migrations
 
                     b.HasIndex("OperatorId");
 
+                    b.HasIndex("OriginalPackageId");
+
                     b.HasIndex("RecipientId");
 
                     b.HasIndex("SenderId");
 
                     b.ToTable("Packages");
+                });
+
+            modelBuilder.Entity("PackageDeliverySystem.Core.PackageItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("varchar(150)");
+
+                    b.Property<int>("PackageId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<int?>("ReturnPackageId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PackageId");
+
+                    b.HasIndex("ReturnPackageId");
+
+                    b.ToTable("PackageItems");
                 });
 
             modelBuilder.Entity("PackageDeliverySystem.Core.ParcelLocker", b =>
@@ -309,6 +344,11 @@ namespace PackageDeliverySystem.Infrastructure.Data.Migrations
                         .HasForeignKey("OperatorId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("PackageDeliverySystem.Core.Package", "OriginalPackage")
+                        .WithMany("ReturnDeliveries")
+                        .HasForeignKey("OriginalPackageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("PackageDeliverySystem.Core.User", "Recipient")
                         .WithMany("ReceivedPackages")
                         .HasForeignKey("RecipientId")
@@ -329,9 +369,29 @@ namespace PackageDeliverySystem.Infrastructure.Data.Migrations
 
                     b.Navigation("Operator");
 
+                    b.Navigation("OriginalPackage");
+
                     b.Navigation("Recipient");
 
                     b.Navigation("Sender");
+                });
+
+            modelBuilder.Entity("PackageDeliverySystem.Core.PackageItem", b =>
+                {
+                    b.HasOne("PackageDeliverySystem.Core.Package", "Package")
+                        .WithMany("Items")
+                        .HasForeignKey("PackageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PackageDeliverySystem.Core.Package", "ReturnPackage")
+                        .WithMany()
+                        .HasForeignKey("ReturnPackageId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Package");
+
+                    b.Navigation("ReturnPackage");
                 });
 
             modelBuilder.Entity("PackageDeliverySystem.Core.Payment", b =>
@@ -352,7 +412,11 @@ namespace PackageDeliverySystem.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("PackageDeliverySystem.Core.Package", b =>
                 {
+                    b.Navigation("Items");
+
                     b.Navigation("Payment");
+
+                    b.Navigation("ReturnDeliveries");
                 });
 
             modelBuilder.Entity("PackageDeliverySystem.Core.ParcelLocker", b =>
