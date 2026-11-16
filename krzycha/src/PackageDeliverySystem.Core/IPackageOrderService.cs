@@ -14,4 +14,6 @@ public interface IPackageOrderService
         int destinationLockerId,
         BoxSize size,
         IEnumerable<PackageItem>? items = null);
+
+    Task CancelPackageAsync(int packageId, int? requestingUserId = null);
 }

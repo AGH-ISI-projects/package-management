@@ -385,17 +385,41 @@ public class PackageWorkflowTests
     }
 
     [Fact]
-    public void WF29_OrderPhase_Cancel_FromOrderedStage_TransitionsToCancelled()
+    public async Task WF29_OrderPhase_Cancel_FromOrderedStage_TransitionsToCancelled()
     {
         // 1. Przygotowanie (Arrange)
-        var package = new Package { Id = 1 };
+        var packageRepoMock = new Mock<IPackageRepository>();
+        var boxRepoMock = new Mock<IBoxRepository>();
+        var peopleServiceMock = new Mock<IPeopleService>();
+        var notificationMock = new Mock<INotificationService>();
+
+        const int packageId = 1;
+        const int senderId = 10;
+        var sender = new User { Id = senderId, Email = "sender@example.com" };
+        var package = new Package
+        {
+            Id = packageId,
+            SenderId = senderId,
+            Sender = sender
+        };
         Assert.Equal(PackageStatus.Ordered, package.Status);
 
+        packageRepoMock.Setup(r => r.GetByIdAsync(packageId)).ReturnsAsync(package);
+
+        var orderService = new PackageOrderService(
+            packageRepoMock.Object,
+            boxRepoMock.Object,
+            peopleServiceMock.Object,
+            notificationMock.Object);
+
         // 2. Właściwy test (Act)
-        package.Cancel();
+        await orderService.CancelPackageAsync(packageId, senderId);
 
         // 3. Weryfikacja rezultatu (Assert)
         Assert.Equal(PackageStatus.Cancelled, package.Status);
+        packageRepoMock.Verify(r => r.UpdateAsync(package), Times.Once);
+        notificationMock.Verify(n => n.NotifyAsync("system", It.Is<string>(msg => msg.Contains("cancelled"))), Times.Once);
+        notificationMock.Verify(n => n.NotifyAsync(sender.Email, It.Is<string>(msg => msg.Contains("cancelled"))), Times.Once);
     }
 
     #endregion
@@ -617,19 +641,42 @@ public class PackageWorkflowTests
     }
 
     [Fact]
-    public void WF30_AcceptancePhase_Cancel_FromAcceptedStage_TransitionsToCancelled()
+    public async Task WF30_AcceptancePhase_Cancel_FromAcceptedStage_TransitionsToCancelled()
     {
         // 1. Przygotowanie (Arrange)
-        var package = new Package { Id = 1 };
+        var packageRepoMock = new Mock<IPackageRepository>();
+        var boxRepoMock = new Mock<IBoxRepository>();
+        var peopleServiceMock = new Mock<IPeopleService>();
+        var notificationMock = new Mock<INotificationService>();
+
+        const int packageId = 1;
+        const int senderId = 10;
+        var sender = new User { Id = senderId, Email = "sender@example.com" };
+        var package = new Package
+        {
+            Id = packageId,
+            SenderId = senderId,
+            Sender = sender
+        };
         MakeReadyForAcceptance(package);
         package.Accept();
         Assert.Equal(PackageStatus.Accepted, package.Status);
 
+        packageRepoMock.Setup(r => r.GetByIdAsync(packageId)).ReturnsAsync(package);
+
+        var orderService = new PackageOrderService(
+            packageRepoMock.Object,
+            boxRepoMock.Object,
+            peopleServiceMock.Object,
+            notificationMock.Object);
+
         // 2. Właściwy test (Act)
-        package.Cancel();
+        await orderService.CancelPackageAsync(packageId, senderId);
 
         // 3. Weryfikacja rezultatu (Assert)
         Assert.Equal(PackageStatus.Cancelled, package.Status);
+        packageRepoMock.Verify(r => r.UpdateAsync(package), Times.Once);
+        notificationMock.Verify(n => n.NotifyAsync("system", It.Is<string>(msg => msg.Contains("cancelled"))), Times.Once);
     }
 
     #endregion
@@ -681,20 +728,41 @@ public class PackageWorkflowTests
     }
 
     [Fact]
-    public void WF09_Cancel_AfterShipped_ThrowsInvalidOperationException()
+    public async Task WF09_Cancel_AfterShipped_ThrowsInvalidOperationException()
     {
         // 1. Przygotowanie (Arrange)
-        var package = new Package { Id = 1 };
+        var packageRepoMock = new Mock<IPackageRepository>();
+        var boxRepoMock = new Mock<IBoxRepository>();
+        var peopleServiceMock = new Mock<IPeopleService>();
+        var notificationMock = new Mock<INotificationService>();
+
+        const int packageId = 1;
+        const int senderId = 10;
+        var package = new Package
+        {
+            Id = packageId,
+            SenderId = senderId
+        };
         MakeReadyForAcceptance(package);
         package.Accept();
         package.Prepare();
         package.Ship();
 
+        packageRepoMock.Setup(r => r.GetByIdAsync(packageId)).ReturnsAsync(package);
+
+        var orderService = new PackageOrderService(
+            packageRepoMock.Object,
+            boxRepoMock.Object,
+            peopleServiceMock.Object,
+            notificationMock.Object);
+
         // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
-        var ex = Assert.Throws<InvalidOperationException>(() => package.Cancel());
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            orderService.CancelPackageAsync(packageId, senderId));
 
         Assert.Equal("Cannot cancel package in status Shipped", ex.Message);
         Assert.Equal(PackageStatus.Shipped, package.Status);
+        packageRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Package>()), Times.Never);
     }
 
     [Fact]

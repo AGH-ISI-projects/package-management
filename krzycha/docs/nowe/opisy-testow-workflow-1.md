@@ -13,7 +13,7 @@ Schemat każdego opisu: przygotowanie → akcja → weryfikacja.
 - **WF14 – Powtórne potwierdzenie płatności**: Tworzy paczkę z już zakończoną płatnością, potwierdza płatność jeszcze raz, sprawdza że nic się nie dzieje: bez pytania bramki, bez zapisu i bez powiadomień.
 - **WF22 – Wykluczenie skrytki w tym samym paczkomacie**: Sprawdza, czy przy wyborze tego samego paczkomatu jako nadawczy i odbiorczy system wyklucza skrytkę źródłową (`exclude: originBox.Id`) przy rezerwacji skrytki docelowej.
 - **WF23 – Blokada podwójnej płatności**: Próbuje zainicjować drugą płatność dla paczki, która została już opłacona, sprawdza że zgłaszany jest błąd.
-- **WF29 – Anulowanie na etapie zamówienia**: Tworzy nową paczkę w statusie `Ordered`, wywołuje jej anulowanie, sprawdza że status zmienia się na `Cancelled`.
+- **WF29 – Anulowanie na etapie zamówienia**: Przygotowuje paczkę w statusie `Ordered`, wywołuje anulowanie w serwisie zamówień (`PackageOrderService.CancelPackageAsync`), sprawdza że status zmienia się na `Cancelled`, paczka została zapisana w repozytorium i poszły powiadomienia.
 
 ## Etap 2: Potwierdzenie depozytu (diagram 02)
 
@@ -27,12 +27,12 @@ Schemat każdego opisu: przygotowanie → akcja → weryfikacja.
 - **WF13 – Akceptacja bez warunków**: Tworzy paczkę, która jest nieopłacona albo niewłożona do skrytki, próbuje ją zaakceptować, sprawdza że w obu przypadkach jest właściwy błąd, a paczka nadal jest zamówiona.
 - **WF16 – Przypisanie za wcześnie**: Tworzy nową paczkę, próbuje przypisać do niej kuriera i operatora, sprawdza że obie próby kończą się błędem, a nikt nie został przypisany.
 - **WF25 – Niezgodność skrytki lub gabarytu**: Sprawdza odmowę akceptacji przy błędnym ID skrytki oraz gdy deklarowany gabaryt paczki przewyższa rozmiar skrytki.
-- **WF30 – Anulowanie na etapie nadania/akceptacji**: Tworzy paczkę w statusie `Accepted`, wywołuje jej anulowanie, sprawdza że status zmienia się na `Cancelled`.
+- **WF30 – Anulowanie na etapie nadania/akceptacji**: Przygotowuje paczkę w statusie `Accepted`, wywołuje anulowanie w serwisie zamówień (`PackageOrderService.CancelPackageAsync`), sprawdza że status zmienia się na `Cancelled`, paczka została zapisana i poszło powiadomienie.
 
 ## Etap 4: Transport i doręczenie kurierskie (diagram 04)
 
 - **WF06 – Zgubienie przez kuriera w transporcie**: Przygotowuje wysłaną paczkę, której termin transportu już minął, uruchamia obsługę wygasłych paczek, sprawdza że paczka wygasła, została zapisana i poszło powiadomienie.
-- **WF09 – Blokada anulowania po wysyłce**: Tworzy paczkę i doprowadza ją do statusu wysłana, próbuje anulować, sprawdza że jest błąd, a status się nie zmienił.
+- **WF09 – Blokada anulowania po wysyłce**: Tworzy paczkę i doprowadza ją do statusu wysłana (`Shipped`), próbuje anulować przez serwis zamówień (`CancelPackageAsync`), sprawdza że rzucany jest błąd (wyjątek), a status i baza się nie zmieniły.
 - **WF11 – Doręczenie za wcześnie**: Tworzy paczkę w statusie zaakceptowana, próbuje ją doręczyć, sprawdza że jest błąd, status się nie zmienił i nie powstał kod odbioru.
 - **WF12 – Odrzucenie po wysyłce**: Tworzy paczkę w statusie wysłana, próbuje ją odrzucić, sprawdza że jest błąd, a status się nie zmienił.
 

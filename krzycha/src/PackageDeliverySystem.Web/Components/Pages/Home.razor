@@ -263,11 +263,17 @@
                                                         🚫 Odrzuć
                                                     </button>
                                                 }
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => CancelPackageAsync(pkg.Id, pkg.SenderId)">
+                                                    ❌ Anuluj
+                                                </button>
                                             }
                                             else if (pkg.Status == PackageStatus.Accepted)
                                             {
                                                 <button class="btn btn-sm btn-info text-white" @onclick="() => ShipPackageAsync(pkg.Id)">
                                                     🚚 Kurier: Odbierz i Wyślij (Ship)
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-danger ms-1" @onclick="() => CancelPackageAsync(pkg.Id, pkg.SenderId)">
+                                                    ❌ Anuluj
                                                 </button>
                                             }
                                             else if (pkg.Status == PackageStatus.Shipped)
@@ -500,6 +506,21 @@
             var operatorId = operators?.FirstOrDefault()?.Id ?? 3;
             await AcceptanceService.RejectPackageAsync(packageId, operatorId);
             successMessage = $"Operator #{operatorId} odrzucił przesyłkę #{packageId}.";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task CancelPackageAsync(int packageId, int senderId)
+    {
+        ClearMessages();
+        try
+        {
+            await OrderService.CancelPackageAsync(packageId, senderId);
+            successMessage = $"Przesyłka #{packageId} została pomyślnie anulowana.";
             await RefreshDataAsync();
         }
         catch (Exception ex)
