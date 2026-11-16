@@ -24,6 +24,28 @@ public class Package
     public Box? DestinationBox { get; set; }
     public Payment? Payment { get; set; }
 
+    public int? OriginalPackageId { get; set; }
+    public Package? OriginalPackage { get; set; }
+    public ICollection<Package> ReturnDeliveries { get; set; } = new List<Package>();
+    public ICollection<PackageItem> Items { get; set; } = new List<PackageItem>();
+
+    public bool IsReturn => OriginalPackageId.HasValue;
+    public bool HasReturns => Items.Any(i => i.IsReturned);
+    public bool AreAllItemsReturned => Items.Count > 0 && Items.All(i => i.IsReturned);
+
+    public PackageItem AddItem(string name, decimal price)
+    {
+        var item = new PackageItem
+        {
+            Name = name,
+            Price = price,
+            Package = this,
+            PackageId = Id
+        };
+        Items.Add(item);
+        return item;
+    }
+
     public DateTime DepositDeadline { get; set; } = DateTime.UtcNow.Add(DepositWindow);
     public DateTime? DepositConfirmedAt { get; private set; }
 

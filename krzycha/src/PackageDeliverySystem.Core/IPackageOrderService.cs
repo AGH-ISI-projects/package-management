@@ -8,5 +8,10 @@ namespace PackageDeliverySystem.Core;
 public interface IPackageOrderService
 {
     Task<Package> CreatePackageAsync(
-        int senderId, int recipientId, int originLockerId, int destinationLockerId, BoxSize size);
+        int senderId,
+        int recipientId,
+        int originLockerId,
+        int destinationLockerId,
+        BoxSize size,
+        IEnumerable<PackageItem>? items = null);
 }

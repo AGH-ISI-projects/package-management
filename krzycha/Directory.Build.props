@@ -8,6 +8,8 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <AnalysisMode>Recommended</AnalysisMode>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <IntermediateOutputPath>obj/$(Configuration)/</IntermediateOutputPath>
   </PropertyGroup>
 
   <ItemGroup>

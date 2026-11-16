@@ -49,6 +49,13 @@ class Package {
     +Box? Box
     +Box? DestinationBox
     +Payment? Payment
+    +int? OriginalPackageId
+    +Package? OriginalPackage
+    +ICollection<Package> ReturnDeliveries
+    +ICollection<PackageItem> Items
+    +bool IsReturn
+    +bool HasReturns
+    +bool AreAllItemsReturned
     +DateTime DepositDeadline
     +DateTime? DepositConfirmedAt
     +DateTime? AcceptedAt
@@ -59,6 +66,7 @@ class Package {
     +DateTime? ExpiredAt
     +string? PickupCode
 
+    +PackageItem AddItem(string name, decimal price)
     +void Accept()
     +void ConfirmDeposit()
     +void Prepare()
@@ -86,6 +94,17 @@ class Payment {
 
     +void Complete()
     +void Fail()
+}
+
+class PackageItem {
+    +int Id
+    +int PackageId
+    +Package Package
+    +string Name
+    +decimal Price
+    +int? ReturnPackageId
+    +Package? ReturnPackage
+    +bool IsReturned
 }
 
 together {
@@ -159,6 +178,9 @@ Package "1" --> "0..1" Box : DestinationBox
 ParcelLocker "1" *-- "0..*" Box
 
 Package "1" *-- "0..1" Payment
+Package "1" *-- "0..*" PackageItem : Items
+Package "0..1" <-- "0..*" Package : OriginalPackage / ReturnDeliveries
+PackageItem "0..*" --> "0..1" Package : ReturnPackage
 
 Package ..> PackageStatus
 Package ..> BoxSize

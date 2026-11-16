@@ -8,6 +8,7 @@ namespace PackageDeliverySystem.Infrastructure.Data
         public DeliveryDbContext(DbContextOptions<DeliveryDbContext> options) : base(options) { }
 
         public DbSet<Package> Packages { get; set; }
+        public DbSet<PackageItem> PackageItems { get; set; }
         public DbSet<Box> Boxes { get; set; }
         public DbSet<ParcelLocker> ParcelLockers { get; set; }
         public DbSet<AbstractPerson> Users { get; set; }
@@ -90,6 +91,27 @@ namespace PackageDeliverySystem.Infrastructure.Data
             modelBuilder.Entity<Payment>().Property(p => p.PayerEmail).HasMaxLength(255);
             modelBuilder.Entity<Payment>().Property(p => p.ExternalReference).HasMaxLength(100);
             modelBuilder.Entity<Payment>().Property(p => p.Amount).HasPrecision(10, 2);
+
+            modelBuilder.Entity<Package>()
+                .HasOne(p => p.OriginalPackage)
+                .WithMany(p => p.ReturnDeliveries)
+                .HasForeignKey(p => p.OriginalPackageId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PackageItem>()
+                .HasOne(pi => pi.Package)
+                .WithMany(p => p.Items)
+                .HasForeignKey(pi => pi.PackageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<PackageItem>()
+                .HasOne(pi => pi.ReturnPackage)
+                .WithMany()
+                .HasForeignKey(pi => pi.ReturnPackageId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<PackageItem>().Property(pi => pi.Name).HasMaxLength(150);
+            modelBuilder.Entity<PackageItem>().Property(pi => pi.Price).HasPrecision(10, 2);
         }
     }
 }

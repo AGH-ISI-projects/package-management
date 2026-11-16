@@ -1,56 +1,623 @@
-﻿@page "/"
+@page "/"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using PackageDeliverySystem.Core
+@using PackageDeliverySystem.Infrastructure.Data
+@inject DeliveryDbContext Db
+@inject IPackageOrderService OrderService
+@inject IPackageIntakeService IntakeService
+@inject IPackageAcceptanceService AcceptanceService
+@inject IPackageFulfillmentService FulfillmentService
+@inject IPackageReturnService ReturnService
 
-<PageTitle>Package Delivery System</PageTitle>
+<PageTitle>Panel Testowy — System Paczkomatów</PageTitle>
 
-<h1>Package Delivery System</h1>
-<p class="text-muted">Please select screen 4 ur role</p>
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h2>📦 Panel Testowy Systemu Paczkomatów</h2>
+            <p class="text-muted mb-0">Interaktywna konsola do testowania pełnego cyklu życia przesyłek oraz zwrotów częściowych</p>
+        </div>
+        <div>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="RefreshDataAsync">🔄 Odśwież dane</button>
+            <a href="/hangfire" target="_blank" class="btn btn-outline-info btn-sm ms-2">⏱ Dashboard Hangfire</a>
+        </div>
+    </div>
 
-<div class="row row-cols-1 row-cols-md-2 g-3">
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <h5 class="card-title">Operator</h5>
-                <p class="card-text">admin panel</p>
-                <a href="/operator" class="btn btn-primary">Open</a>
-            </div>
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <strong>Sukces:</strong> @successMessage
+            <button type="button" class="btn-close" @onclick="() => successMessage = null"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong>Błąd:</strong> @errorMessage
+            <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <!-- SEKCJA 1: FORMULARZ NADANIA PACZKI -->
+    <div class="card mb-4 shadow-sm border-primary">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">1. Nadaj nową przesyłkę (z wyznaczeniem produktów)</h5>
+        </div>
+        <div class="card-body">
+            @if (users == null || !users.Any() || lockers == null || !lockers.Any())
+            {
+                <div class="alert alert-warning">Brak załadowanych użytkowników lub paczkomatów w bazie. Upewnij się, że baza danych MySQL działa.</div>
+            }
+            else
+            {
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Nadawca (np. Sklep):</label>
+                        <select class="form-select" @bind="selectedSenderId">
+                            @foreach (var user in users)
+                            {
+                                <option value="@user.Id">@user.Name @user.Surname (@user.Email)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Odbiorca (np. Klient):</label>
+                        <select class="form-select" @bind="selectedRecipientId">
+                            @foreach (var user in users)
+                            {
+                                <option value="@user.Id">@user.Name @user.Surname (@user.Email)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Paczkomat nadawczy:</label>
+                        <select class="form-select" @bind="selectedOriginLockerId">
+                            @foreach (var locker in lockers)
+                            {
+                                <option value="@locker.Id">@locker.City (@locker.Street @locker.Number)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Paczkomat odbiorczy:</label>
+                        <select class="form-select" @bind="selectedDestinationLockerId">
+                            @foreach (var locker in lockers)
+                            {
+                                <option value="@locker.Id">@locker.City (@locker.Street @locker.Number)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold">Rozmiar skrytki:</label>
+                        <select class="form-select" @bind="selectedSize">
+                            <option value="@BoxSize.Small">Small (Mała)</option>
+                            <option value="@BoxSize.Medium">Medium (Średnia)</option>
+                            <option value="@BoxSize.Large">Large (Duża)</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-10">
+                        <label class="form-label fw-bold">Zawartość paczki (Produkty):</label>
+                        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                            @for (int i = 0; i < newPackageItems.Count; i++)
+                            {
+                                var index = i;
+                                <div class="input-group input-group-sm" style="width: 280px;">
+                                    <input type="text" class="form-control" placeholder="Nazwa towaru" @bind="newPackageItems[index].Name" />
+                                    <input type="number" step="0.01" class="form-control" style="max-width: 90px;" placeholder="Cena zł" @bind="newPackageItems[index].Price" />
+                                    <button class="btn btn-outline-danger" type="button" @onclick="() => RemoveItemField(index)">✕</button>
+                                </div>
+                            }
+                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="AddItemField">+ Dodaj pozycję</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <button class="btn btn-success fw-bold" @onclick="CreatePackageAsync">
+                        🚀 Utwórz przesyłkę (PackageOrderService)
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- SEKCJA 2: LISTA PACZEK I STEROWANIE CYKLEM ŻYCIA -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">2. Przesyłki w systemie i sterowanie cyklem życia (@(packages?.Count ?? 0))</h5>
+        </div>
+        <div class="card-body p-0">
+            @if (packages == null || !packages.Any())
+            {
+                <div class="p-4 text-center text-muted">Brak przesyłek w systemie. Utwórz pierwszą paczkę powyżej!</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Typ</th>
+                                <th>Nadawca $\rightarrow$ Odbiorca</th>
+                                <th>Trasa (Skrytki)</th>
+                                <th>Status</th>
+                                <th>Zawartość (Produkty)</th>
+                                <th>Płatność / PIN</th>
+                                <th style="min-width: 280px;">Dostępne Akcje Cyklu Życia</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var pkg in packages)
+                            {
+                                <tr class="@(pkg.IsReturn ? "table-warning" : "")">
+                                    <td><strong>#@pkg.Id</strong></td>
+                                    <td>
+                                        @if (pkg.IsReturn)
+                                        {
+                                            <span class="badge bg-warning text-dark">↩️ Zwrot paczki #@pkg.OriginalPackageId</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">Zwykła</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <small class="d-block"><strong>Od:</strong> @pkg.Sender?.Name @pkg.Sender?.Surname</small>
+                                        <small class="d-block"><strong>Do:</strong> @pkg.Recipient?.Name @pkg.Recipient?.Surname</small>
+                                    </td>
+                                    <td>
+                                        <small class="d-block">Skrytka A: <code>Box #@pkg.BoxId</code> (@pkg.Box?.ParcelLocker?.City)</small>
+                                        <small class="d-block">Skrytka B: <code>Box #@pkg.DestinationBoxId</code> (@pkg.DestinationBox?.ParcelLocker?.City)</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetStatusBadgeClass(pkg.Status) fs-6">@pkg.Status</span>
+                                        @if (pkg.HasReturns)
+                                        {
+                                            <div class="mt-1"><span class="badge bg-info text-dark">Częściowo zwrócona</span></div>
+                                        }
+                                        @if (pkg.AreAllItemsReturned)
+                                        {
+                                            <div class="mt-1"><span class="badge bg-dark">Wszystko zwrócone</span></div>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (pkg.Items != null && pkg.Items.Any())
+                                        {
+                                            <ul class="list-unstyled mb-0 small">
+                                                @foreach (var item in pkg.Items)
+                                                {
+                                                    <li>
+                                                        • <strong>@item.Name</strong> (@item.Price zł)
+                                                        @if (item.IsReturned)
+                                                        {
+                                                            <span class="badge bg-danger ms-1">Zwrócony w #@item.ReturnPackageId</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="badge bg-success ms-1">U klienta</span>
+                                                        }
+                                                    </li>
+                                                }
+                                            </ul>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">Brak pozycji</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <small class="d-block">
+                                            Płatność: 
+                                            @if (pkg.Payment != null)
+                                            {
+                                                <span class="badge @(pkg.Payment.Status == PaymentStatus.Completed ? "bg-success" : "bg-warning")">
+                                                    @pkg.Payment.Status (@pkg.Payment.Amount zł)
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">Brak</span>
+                                            }
+                                        </small>
+                                        @if (!string.IsNullOrEmpty(pkg.PickupCode))
+                                        {
+                                            <small class="d-block mt-1">
+                                                Kod PIN: <span class="badge bg-primary fs-6">@pkg.PickupCode</span>
+                                            </small>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            @if (pkg.Status == PackageStatus.Ordered)
+                                            {
+                                                @if (pkg.Payment == null || pkg.Payment.Status != PaymentStatus.Completed)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-success" @onclick="() => PayForPackageAsync(pkg.Id)">
+                                                        💳 Opłać nadanie (14.99 zł)
+                                                    </button>
+                                                }
+
+                                                @if (pkg.DepositConfirmedAt == null)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => ConfirmDepositAsync(pkg.Id)">
+                                                        📥 Kurier: Potwierdź depozyt
+                                                    </button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => ReportMissingDepositAsync(pkg.Id)">
+                                                        ❌ Kurier: Pusta skrytka
+                                                    </button>
+                                                }
+
+                                                @if (pkg.Payment != null && pkg.Payment.Status == PaymentStatus.Completed && pkg.DepositConfirmedAt != null)
+                                                {
+                                                    <button class="btn btn-sm btn-primary" @onclick="() => AcceptPackageAsync(pkg.Id, pkg.BoxId!.Value)">
+                                                        ✅ Operator: Zaakceptuj
+                                                    </button>
+                                                    <button class="btn btn-sm btn-danger" @onclick="() => RejectPackageAsync(pkg.Id)">
+                                                        🚫 Odrzuć
+                                                    </button>
+                                                }
+                                            }
+                                            else if (pkg.Status == PackageStatus.Accepted)
+                                            {
+                                                <button class="btn btn-sm btn-info text-white" @onclick="() => ShipPackageAsync(pkg.Id)">
+                                                    🚚 Kurier: Odbierz i Wyślij (Ship)
+                                                </button>
+                                            }
+                                            else if (pkg.Status == PackageStatus.Shipped)
+                                            {
+                                                <button class="btn btn-sm btn-warning text-dark" @onclick="() => DeliverPackageAsync(pkg.Id)">
+                                                    📬 Kurier: Włóż do paczkomatu (Deliver)
+                                                </button>
+                                            }
+                                            else if (pkg.Status == PackageStatus.Delivered)
+                                            {
+                                                <button class="btn btn-sm btn-success" @onclick="() => CollectPackageAsync(pkg.Id, pkg.RecipientId, pkg.PickupCode!)">
+                                                    🔓 Klient: Odbierz kodem PIN (@pkg.PickupCode)
+                                                </button>
+                                            }
+                                            else if (pkg.Status == PackageStatus.Collected)
+                                            {
+                                                var unreturnedItems = pkg.Items?.Where(i => !i.IsReturned).ToList();
+                                                if (unreturnedItems != null && unreturnedItems.Any())
+                                                {
+                                                    <div class="border rounded p-1 bg-light w-100">
+                                                        <small class="fw-bold d-block text-danger mb-1">Zwróć wybrane produkty:</small>
+                                                        @foreach (var item in unreturnedItems)
+                                                        {
+                                                            <div class="form-check form-check-inline small">
+                                                                <input class="form-check-input" type="checkbox" id="ret_@(item.Id)" 
+                                                                       checked="@IsItemSelectedForReturn(pkg.Id, item.Id)"
+                                                                       @onchange="(e) => ToggleReturnItemSelection(pkg.Id, item.Id, (bool)e.Value!)" />
+                                                                <label class="form-check-label" for="ret_@(item.Id)">@item.Name (@item.Price zł)</label>
+                                                            </div>
+                                                        }
+                                                        <button class="btn btn-sm btn-danger mt-1 d-block" 
+                                                                @onclick="() => SubmitPartialReturnAsync(pkg.Id, pkg.RecipientId)">
+                                                            ↩️ Utwórz przesyłkę zwrotną
+                                                        </button>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-success small">✔️ Wszystkie produkty odebrane / zwrócone</span>
+                                                }
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
         </div>
     </div>
 </div>
 
-<div class="row row-cols-1 row-cols-md-2 g-3">
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <h5 class="card-title">Courier</h5>
-                <p class="card-text">parcel delivery panel</p>
-                <a href="/courier" class="btn btn-primary">Open</a>
-            </div>
-        </div>
-    </div>
-</div>
+@code {
+    private List<Package>? packages;
+    private List<User>? users;
+    private List<PackageDeliverySystem.Core.ParcelLocker>? lockers;
+    private List<PackageDeliverySystem.Core.Courier>? couriers;
+    private List<PackageDeliverySystem.Core.Operator>? operators;
 
-<div class="row row-cols-1 row-cols-md-2 g-3">
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <h5 class="card-title">Customer</h5>
-                <p class="card-text">parcel reception panel</p>
-                <a href="/customer" class="btn btn-primary">Open</a>
-            </div>
-        </div>
-    </div>
-</div>
+    private int selectedSenderId;
+    private int selectedRecipientId;
+    private int selectedOriginLockerId;
+    private int selectedDestinationLockerId;
+    private BoxSize selectedSize = BoxSize.Medium;
 
-<div class="row row-cols-1 row-cols-md-2 g-3">
-    <div class="col">
-        <div class="card h-100">
-            <div class="card-body">
-                <h5 class="card-title">Parcel Locker</h5>
-                <p class="card-text">parcel locker reception panel</p>
-                <a href="/parcel" class="btn btn-primary">Open</a>
-            </div>
-        </div>
-    </div>
-</div>
+    private class ItemFormModel
+    {
+        public string Name { get; set; } = string.Empty;
+        public decimal Price { get; set; }
+    }
 
+    private List<ItemFormModel> newPackageItems = new()
+    {
+        new ItemFormModel { Name = "Buty sportowe", Price = 199.99m },
+        new ItemFormModel { Name = "Spodnie jeansowe", Price = 129.99m }
+    };
 
+    // Słownik wybranych produktów do zwrotu dla danej paczki: packageId -> Set(itemId)
+    private Dictionary<int, HashSet<int>> returnSelections = new();
+
+    private string? successMessage;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshDataAsync();
+    }
+
+    private async Task RefreshDataAsync()
+    {
+        try
+        {
+            users = await Db.Users.OfType<User>().OrderBy(u => u.Id).ToListAsync();
+            couriers = await Db.Users.OfType<PackageDeliverySystem.Core.Courier>().OrderBy(u => u.Id).ToListAsync();
+            operators = await Db.Users.OfType<PackageDeliverySystem.Core.Operator>().OrderBy(u => u.Id).ToListAsync();
+            lockers = await Db.ParcelLockers.Include(l => l.Boxes).OrderBy(l => l.Id).ToListAsync();
+
+            packages = await Db.Packages
+                .Include(p => p.Sender)
+                .Include(p => p.Recipient)
+                .Include(p => p.Payment)
+                .Include(p => p.Items)
+                .Include(p => p.Box).ThenInclude(b => b!.ParcelLocker)
+                .Include(p => p.DestinationBox).ThenInclude(b => b!.ParcelLocker)
+                .OrderByDescending(p => p.Id)
+                .ToListAsync();
+
+            if (users.Count >= 2 && selectedSenderId == 0)
+            {
+                selectedSenderId = users[0].Id;
+                selectedRecipientId = users[1].Id;
+            }
+
+            if (lockers.Count >= 2 && selectedOriginLockerId == 0)
+            {
+                selectedOriginLockerId = lockers[0].Id;
+                selectedDestinationLockerId = lockers[1].Id;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Błąd podczas ładowania danych: {ex.Message}";
+        }
+    }
+
+    private void AddItemField() => newPackageItems.Add(new ItemFormModel { Name = "", Price = 50.0m });
+    private void RemoveItemField(int index)
+    {
+        if (newPackageItems.Count > 1) newPackageItems.RemoveAt(index);
+    }
+
+    private async Task CreatePackageAsync()
+    {
+        ClearMessages();
+        try
+        {
+            var itemsToDeclare = newPackageItems
+                .Where(i => !string.IsNullOrWhiteSpace(i.Name))
+                .Select(i => new PackageItem { Name = i.Name.Trim(), Price = i.Price })
+                .ToList();
+
+            var pkg = await OrderService.CreatePackageAsync(
+                selectedSenderId,
+                selectedRecipientId,
+                selectedOriginLockerId,
+                selectedDestinationLockerId,
+                selectedSize,
+                itemsToDeclare);
+
+            successMessage = $"Paczka #{pkg.Id} została pomyślnie zamówiona z {pkg.Items.Count} pozycjami!";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task PayForPackageAsync(int packageId)
+    {
+        ClearMessages();
+        try
+        {
+            var pkg = await Db.Packages.FindAsync(packageId);
+            var email = pkg?.Sender?.Email ?? "klient@example.com";
+            await IntakeService.RequestPaymentAsync(packageId, email, 14.99m);
+            await IntakeService.ConfirmPaymentAsync(packageId);
+            successMessage = $"Płatność dla paczki #{packageId} została pomyślnie zrealizowana!";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task ConfirmDepositAsync(int packageId)
+    {
+        ClearMessages();
+        try
+        {
+            var courierId = couriers?.FirstOrDefault()?.Id ?? 4;
+            await IntakeService.ConfirmDepositAsync(packageId, courierId);
+            successMessage = $"Kurier #{courierId} potwierdził fizyczny depozyt paczki #{packageId} w skrytce!";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task ReportMissingDepositAsync(int packageId)
+    {
+        ClearMessages();
+        try
+        {
+            var courierId = couriers?.FirstOrDefault()?.Id ?? 4;
+            await IntakeService.ReportMissingDepositAsync(packageId, courierId);
+            successMessage = $"Kurier zgłosił pustą skrytkę dla paczki #{packageId}. Zamówienie zostało anulowane.";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task AcceptPackageAsync(int packageId, int boxId)
+    {
+        ClearMessages();
+        try
+        {
+            var operatorId = operators?.FirstOrDefault()?.Id ?? 3;
+            await AcceptanceService.AcceptPackageAsync(packageId, operatorId, boxId);
+            successMessage = $"Operator #{operatorId} zaakceptował przesyłkę #{packageId} do wysyłki!";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task RejectPackageAsync(int packageId)
+    {
+        ClearMessages();
+        try
+        {
+            var operatorId = operators?.FirstOrDefault()?.Id ?? 3;
+            await AcceptanceService.RejectPackageAsync(packageId, operatorId);
+            successMessage = $"Operator #{operatorId} odrzucił przesyłkę #{packageId}.";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task ShipPackageAsync(int packageId)
+    {
+        ClearMessages();
+        try
+        {
+            var courierId = couriers?.FirstOrDefault()?.Id ?? 4;
+            await FulfillmentService.AssignCourierAsync(packageId, courierId);
+            await FulfillmentService.ShipPackageAsync(packageId);
+            successMessage = $"Kurier #{courierId} odebrał paczkę #{packageId} i jest ona w transporcie (Shipped)!";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task DeliverPackageAsync(int packageId)
+    {
+        ClearMessages();
+        try
+        {
+            await FulfillmentService.DeliverPackageAsync(packageId);
+            var updated = await Db.Packages.FindAsync(packageId);
+            successMessage = $"Paczka #{packageId} została umieszczona w paczkomacie odbiorcy! Wygenerowano kod odbioru PIN: {updated?.PickupCode}";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task CollectPackageAsync(int packageId, int recipientId, string code)
+    {
+        ClearMessages();
+        try
+        {
+            await FulfillmentService.CollectPackageAsync(packageId, recipientId, code);
+            successMessage = $"Paczka #{packageId} została pomyślnie odebrana kodem PIN {code}!";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private bool IsItemSelectedForReturn(int packageId, int itemId)
+    {
+        return returnSelections.ContainsKey(packageId) && returnSelections[packageId].Contains(itemId);
+    }
+
+    private void ToggleReturnItemSelection(int packageId, int itemId, bool isChecked)
+    {
+        if (!returnSelections.ContainsKey(packageId))
+        {
+            returnSelections[packageId] = new HashSet<int>();
+        }
+
+        if (isChecked) returnSelections[packageId].Add(itemId);
+        else returnSelections[packageId].Remove(itemId);
+    }
+
+    private async Task SubmitPartialReturnAsync(int packageId, int customerId)
+    {
+        ClearMessages();
+        try
+        {
+            if (!returnSelections.ContainsKey(packageId) || !returnSelections[packageId].Any())
+            {
+                errorMessage = "Wybierz przynajmniej jeden produkt do zwrotu zaznaczając checkbox.";
+                return;
+            }
+
+            var selectedItemIds = returnSelections[packageId].ToList();
+            var returnPackage = await ReturnService.CreateReturnDeliveryAsync(
+                originalPackageId: packageId,
+                customerId: customerId,
+                itemIds: selectedItemIds);
+
+            returnSelections[packageId].Clear();
+            successMessage = $"🎉 Utworzono przesyłkę zwrotną #{returnPackage.Id} dla {selectedItemIds.Count} pozycji! Paczka zwrotna pojawiła się na liście powyżej ze statusem Ordered.";
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void ClearMessages()
+    {
+        successMessage = null;
+        errorMessage = null;
+    }
+
+    private string GetStatusBadgeClass(PackageStatus status) => status switch
+    {
+        PackageStatus.Ordered => "bg-secondary",
+        PackageStatus.Accepted => "bg-primary",
+        PackageStatus.Preparing => "bg-info text-dark",
+        PackageStatus.Shipped => "bg-warning text-dark",
+        PackageStatus.Delivered => "bg-success text-white",
+        PackageStatus.Collected => "bg-dark text-white",
+        PackageStatus.Cancelled => "bg-danger",
+        PackageStatus.Rejected => "bg-danger",
+        PackageStatus.Expired => "bg-dark",
+        _ => "bg-secondary"
+    };
+}

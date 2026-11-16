@@ -1,0 +1,94 @@
+@startuml
+' ER Diagram - System Obsługi Paczkomatów (z uwzględnieniem modułu zwrotów)
+hide circle
+skinparam linetype ortho
+skinparam roundcorner 5
+
+entity "User" as user {
+  * Id : INTEGER <<PK>>
+  --
+  * Name : VARCHAR(100)
+  * Surname : VARCHAR(100)
+  * Email : VARCHAR(255)
+  * PhoneNumber : VARCHAR(20)
+  Rank : INTEGER
+}
+
+entity "ParcelLocker" as locker {
+  * LockerId : INTEGER <<PK>>
+  --
+  * Latitude : DOUBLE
+  * Longitude : DOUBLE
+  * Country : VARCHAR(100)
+  * City : VARCHAR(100)
+  * Street : VARCHAR(100)
+  * PostalCode : VARCHAR(20)
+  * Number : VARCHAR(20)
+}
+
+entity "Box" as box {
+  * LockerId : INTEGER <<PK>>
+  --
+  * PointId : INTEGER <<FK>>
+  * Size : ENUM (SMALL, MEDIUM, LARGE)
+}
+
+entity "Package" as package {
+  * PackageId : INTEGER <<PK>>
+  --
+  * SendingLockerId : INTEGER <<FK>>
+  * DestinationLockerId : INTEGER <<FK>>
+  * Status : ENUM
+  * SenderId : INTEGER <<FK>>
+  * RecipientId : INTEGER <<FK>>
+  CourierId : INTEGER <<FK>>
+  OperatorId : INTEGER <<FK>>
+  AcceptedAt : DATETIME NULL
+  PreparedAt : DATETIME NULL
+  ShippedAt : DATETIME NULL
+  DeliveredAt : DATETIME NULL
+  CollectedAt : DATETIME NULL
+  ExpiredAt : DATETIME NULL
+  DepositDeadline : DATETIME NULL
+  DepositConfirmedAt : DATETIME NULL
+  Size : ENUM
+  OriginalPackageId : INTEGER NULL <<FK>>
+}
+
+entity "Payment" as payment {
+  * Id : INTEGER <<PK>>
+  --
+  * PackageId : INTEGER <<FK>>
+  * PayerEmail : VARCHAR(200)
+  * Amount : DECIMAL(10,2)
+  * Status : ENUM (PENDING, COMPLETED, FAILED)
+  ExternalReference : VARCHAR(2000)
+  * CreatedAt : DATETIME
+  CompletedAt : DATETIME NULL
+}
+
+entity "PackageItem" as item {
+  * Id : INTEGER <<PK>>
+  --
+  * PackageId : INTEGER <<FK>>
+  * Name : VARCHAR(150)
+  * Price : DECIMAL(10,2)
+  ReturnPackageId : INTEGER NULL <<FK>>
+}
+
+' Relacje standardowe
+locker ||--|{ box : "LockerId"
+box ||--o{ package : "SendingLockerId"
+box ||--o{ package : "DestinationLockerId"
+user ||--o{ package : "SenderId"
+user ||--o{ package : "RecipientId"
+user ||--o{ package : "CourierId"
+user ||--o{ package : "OperatorId"
+package ||--o| payment : "PackageId"
+
+' Relacje modułu zwrotów (rozszerzenie)
+package ||--o{ package : "OriginalPackageId\n(zwroty)"
+package ||--|{ item : "PackageId\n(pozycje zamówienia)"
+package |o--o{ item : "ReturnPackageId\n(odesłanie towaru)"
+
+@enduml

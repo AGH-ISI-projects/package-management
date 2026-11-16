@@ -17,7 +17,12 @@ public class PackageOrderService : IPackageOrderService
     }
 
     public async Task<Package> CreatePackageAsync(
-        int senderId, int recipientId, int originLockerId, int destinationLockerId, BoxSize size)
+        int senderId,
+        int recipientId,
+        int originLockerId,
+        int destinationLockerId,
+        BoxSize size,
+        IEnumerable<PackageItem>? items = null)
     {
         var sender = await _peopleService.GetUserAsync(senderId)
             ?? throw new ArgumentException("Sender not found");
@@ -42,6 +47,14 @@ public class PackageOrderService : IPackageOrderService
             BoxId = originBox.Id,
             DestinationBoxId = destinationBox.Id
         };
+
+        if (items != null)
+        {
+            foreach (var item in items)
+            {
+                package.Items.Add(item);
+            }
+        }
 
         await _packageRepository.AddAsync(package);
         return package;
