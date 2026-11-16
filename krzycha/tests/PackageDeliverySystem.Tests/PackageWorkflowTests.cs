@@ -915,9 +915,12 @@ public class PackageWorkflowTests
     }
 
     [Fact]
-    public void WF31_DeliveryPhase_UncollectedPackagePast48Hours_CustomerFailsToCollect_TransitionsToExpired()
+    public async Task WF31_DeliveryPhase_UncollectedPackagePast48Hours_CustomerFailsToCollect_TransitionsToExpired()
     {
         // 1. Przygotowanie (Arrange)
+        var packageRepoMock = new Mock<IPackageRepository>();
+        var notificationServiceMock = new Mock<INotificationService>();
+
         var package = new Package
         {
             Id = 1,
@@ -928,17 +931,53 @@ public class PackageWorkflowTests
         package.Accept();
         package.Prepare();
         package.Ship();
+
+        var beforeDelivery = DateTime.UtcNow;
         package.Deliver();
         Assert.Equal(PackageStatus.Delivered, package.Status);
 
+        // Weryfikacja że Deliver() odnawia okno 48h od momentu doręczenia
+        Assert.NotNull(package.ExpiredAt);
+        Assert.True(package.ExpiredAt >= beforeDelivery.AddHours(47));
+
+        // Symulacja upłynięcia 48h na odbiór (termin minął)
         typeof(Package).GetProperty(nameof(Package.ExpiredAt))?
             .SetValue(package, DateTime.UtcNow.AddHours(-1));
 
-        // 2. Właściwy test (Act)
-        package.Expire();
+        packageRepoMock.Setup(r => r.GetPackagesRequiringExpirationAsync())
+            .ReturnsAsync(new List<Package> { package });
+
+        var acceptanceService = new PackageAcceptanceService(
+            packageRepoMock.Object,
+            Mock.Of<IBoxRepository>(),
+            notificationServiceMock.Object,
+            Mock.Of<IPeopleService>());
+
+        // 2. Właściwy test (Act) - zadanie w tle przetwarzające przeterminowane przesyłki
+        await acceptanceService.ProcessExpiredPackagesAsync();
 
         // 3. Weryfikacja rezultatu (Assert)
         Assert.Equal(PackageStatus.Expired, package.Status);
+        packageRepoMock.Verify(r => r.UpdateAsync(package), Times.Once);
+        notificationServiceMock.Verify(n => n.NotifyAsync("system",
+            It.Is<string>(msg => msg.Contains("EXPIRED due to inactivity"))), Times.Once);
+    }
+
+    [Fact]
+    public void WF31_Expire_BeforeDeadlinePassed_ThrowsInvalidOperationException()
+    {
+        // 1. Przygotowanie (Arrange)
+        var package = new Package { Id = 1 };
+        MakeReadyForAcceptance(package);
+        package.Accept();
+        package.Prepare();
+        package.Ship();
+        package.Deliver();
+
+        // 2. Właściwy test (Act) & 3. Weryfikacja (Assert)
+        var ex = Assert.Throws<InvalidOperationException>(() => package.Expire());
+        Assert.Contains("deadline has not passed yet", ex.Message);
+        Assert.Equal(PackageStatus.Delivered, package.Status);
     }
 
     #endregion

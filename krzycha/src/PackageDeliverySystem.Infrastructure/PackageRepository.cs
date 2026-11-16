@@ -62,7 +62,8 @@ namespace PackageDeliverySystem.Infrastructure
             return await _context.Packages
                 .Where(p => 
                     (p.Status == PackageStatus.Accepted && p.ExpiredAt < now) ||
-                    (p.Status == PackageStatus.Shipped && p.ExpiredAt < now)
+                    (p.Status == PackageStatus.Shipped && p.ExpiredAt < now) ||
+                    (p.Status == PackageStatus.Delivered && p.ExpiredAt < now)
                 )
                 .ToListAsync();
         }

@@ -115,6 +115,7 @@ public class Package
 
         Status = PackageStatus.Delivered;
         DeliveredAt = DateTime.UtcNow;
+        ExpiredAt = DeliveredAt.Value.Add(DepositWindow);
         PickupCode = Random.Shared.Next(100_000, 999_999).ToString();
     }
 
@@ -154,12 +155,15 @@ public class Package
     }
 
     public void Expire()
-        {
-            if (Status == PackageStatus.Delivered && ExpiredAt - DateTime.UtcNow > TimeSpan.FromHours(48))
-                throw new InvalidOperationException($"Cannot expire package in status {Status}");
-            
-            Status = PackageStatus.Expired;
-        }
+    {
+        if (Status != PackageStatus.Accepted && Status != PackageStatus.Shipped && Status != PackageStatus.Delivered)
+            throw new InvalidOperationException($"Cannot expire package in status {Status}");
+
+        if (ExpiredAt.HasValue && DateTime.UtcNow < ExpiredAt.Value)
+            throw new InvalidOperationException($"Cannot expire package {Id}: expiration deadline has not passed yet.");
+
+        Status = PackageStatus.Expired;
+    }
 
     public void AssignOperator(Operator operatorUser)
     {

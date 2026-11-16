@@ -41,7 +41,7 @@ Schemat każdego opisu: przygotowanie → akcja → weryfikacja.
 - **WF07 – Błędy przy odbiorze**: Przygotowuje doręczoną paczkę, próbuje ją odebrać obca osoba, a potem prawdziwy odbiorca ze złym kodem. Sprawdza że obie próby kończą się właściwym błędem, a paczka nadal czeka na odbiór.
 - **WF15 – Ocena kuriera**: Tworzy doręczoną paczkę i próbuje ocenić kuriera oceną za niską, za wysoką, przed odbiorem paczki i przez obcą osobę – sprawdza że każda próba daje błąd. Na końcu odbiera paczkę i sprawdza że poprawna ocena odbiorcy trafia do rankingu kuriera.
 - **WF26 – Ocena bez przypisanego kuriera**: Próbuje ocenić kuriera dla przesyłki, do której kurier nie został przypisany, sprawdza że rzucany jest właściwy wyjątek.
-- **WF31 – Nieodebranie paczki przez klienta (upłynięcie 48 h)**: Przygotowuje doręczoną paczkę w paczkomacie, której minął termin odbioru, wywołuje wygaśnięcie, sprawdza że paczka zmienia status na `Expired`.
+- **WF31 – Nieodebranie paczki przez klienta (upłynięcie 48 h)**: Przygotowuje doręczoną paczkę w paczkomacie (status `Delivered`), dla której minęło 48-godzinne okno na odbiór (`ExpiredAt`). Uruchamia zadanie w tle (`PackageAcceptanceService.ProcessExpiredPackagesAsync`), sprawdza że paczka zmienia status na `Expired`, zmiany zapisano w repozytorium i poszło powiadomienie. Dodatkowo weryfikuje blokadę wygaśnięcia przed upływem terminu.
 
 ## Etap 6: Proces zwrotu produktów (diagram 06)
 
