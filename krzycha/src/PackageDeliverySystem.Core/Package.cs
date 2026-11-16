@@ -33,12 +33,11 @@ public class Package
     public bool HasReturns => Items.Any(i => i.IsReturned);
     public bool AreAllItemsReturned => Items.Count > 0 && Items.All(i => i.IsReturned);
 
-    public PackageItem AddItem(string name, decimal price)
+    public PackageItem AddItem(string name)
     {
         var item = new PackageItem
         {
             Name = name,
-            Price = price,
             Package = this,
             PackageId = Id
         };

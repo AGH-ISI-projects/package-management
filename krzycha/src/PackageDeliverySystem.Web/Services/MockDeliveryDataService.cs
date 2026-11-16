@@ -60,8 +60,8 @@ public class MockDeliveryDataService : IDeliveryDataService
             DestinationBoxId = destinationBox?.Id,
         };
 
-        package.AddItem("Przykładowy towar A", 49.99m);
-        package.AddItem("Przykładowy towar B", 29.99m);
+        package.AddItem("Przykładowy towar A");
+        package.AddItem("Przykładowy towar B");
 
         if (targetStatus == PackageStatus.Ordered)
             return package;

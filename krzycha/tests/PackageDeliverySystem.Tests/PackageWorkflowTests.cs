@@ -55,9 +55,9 @@ public class PackageWorkflowTests
             Size = BoxSize.Medium
         };
 
-        package.Items.Add(new PackageItem { Id = 1, PackageId = packageId, Name = "Buty sportowe", Price = 199.99m });
-        package.Items.Add(new PackageItem { Id = 2, PackageId = packageId, Name = "Spodnie jeansowe", Price = 129.99m });
-        package.Items.Add(new PackageItem { Id = 3, PackageId = packageId, Name = "Czapka zimowa", Price = 49.99m });
+        package.Items.Add(new PackageItem { Id = 1, PackageId = packageId, Name = "Buty sportowe" });
+        package.Items.Add(new PackageItem { Id = 2, PackageId = packageId, Name = "Spodnie jeansowe" });
+        package.Items.Add(new PackageItem { Id = 3, PackageId = packageId, Name = "Czapka zimowa" });
 
         package.ConfirmDeposit();
         package.Payment = new Payment
@@ -149,7 +149,7 @@ public class PackageWorkflowTests
 
         // 2. Właściwy test (Act)
         // Krok 1: Złożenie zamówienia z produktami
-        var items = new[] { new PackageItem { Name = "Słuchawki bezprzewodowe", Price = 249.00m } };
+        var items = new[] { new PackageItem { Name = "Słuchawki bezprzewodowe" } };
         var createdPackage = await orderService.CreatePackageAsync(senderId, recipientId, originLockerId, destinationLockerId, BoxSize.Medium, items);
 
         // Krok 2: Płatność
@@ -904,9 +904,9 @@ public class PackageWorkflowTests
             Size = BoxSize.Medium
         };
 
-        var item1 = new PackageItem { Id = 1, PackageId = originalPackageId, Name = "Klawiatura", Price = 250m };
-        var item2 = new PackageItem { Id = 2, PackageId = originalPackageId, Name = "Myszka", Price = 120m };
-        var item3 = new PackageItem { Id = 3, PackageId = originalPackageId, Name = "Podkładka", Price = 40m };
+        var item1 = new PackageItem { Id = 1, PackageId = originalPackageId, Name = "Klawiatura" };
+        var item2 = new PackageItem { Id = 2, PackageId = originalPackageId, Name = "Myszka" };
+        var item3 = new PackageItem { Id = 3, PackageId = originalPackageId, Name = "Podkładka" };
 
         originalPackage.Items.Add(item1);
         originalPackage.Items.Add(item2);

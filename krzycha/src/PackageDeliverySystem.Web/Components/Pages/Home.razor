@@ -108,9 +108,8 @@
                             @for (int i = 0; i < newPackageItems.Count; i++)
                             {
                                 var index = i;
-                                <div class="input-group input-group-sm" style="width: 280px;">
+                                <div class="input-group input-group-sm" style="width: 220px;">
                                     <input type="text" class="form-control" placeholder="Nazwa towaru" @bind="newPackageItems[index].Name" />
-                                    <input type="number" step="0.01" class="form-control" style="max-width: 90px;" placeholder="Cena zł" @bind="newPackageItems[index].Price" />
                                     <button class="btn btn-outline-danger" type="button" @onclick="() => RemoveItemField(index)">✕</button>
                                 </div>
                             }
@@ -195,7 +194,7 @@
                                                 @foreach (var item in pkg.Items)
                                                 {
                                                     <li>
-                                                        • <strong>@item.Name</strong> (@item.Price zł)
+                                                        • <strong>@item.Name</strong>
                                                         @if (item.IsReturned)
                                                         {
                                                             <span class="badge bg-danger ms-1">Zwrócony w #@item.ReturnPackageId</span>
@@ -296,7 +295,7 @@
                                                                 <input class="form-check-input" type="checkbox" id="ret_@(item.Id)" 
                                                                        checked="@IsItemSelectedForReturn(pkg.Id, item.Id)"
                                                                        @onchange="(e) => ToggleReturnItemSelection(pkg.Id, item.Id, (bool)e.Value!)" />
-                                                                <label class="form-check-label" for="ret_@(item.Id)">@item.Name (@item.Price zł)</label>
+                                                                <label class="form-check-label" for="ret_@(item.Id)">@item.Name</label>
                                                             </div>
                                                         }
                                                         <button class="btn btn-sm btn-danger mt-1 d-block" 
@@ -338,13 +337,12 @@
     private class ItemFormModel
     {
         public string Name { get; set; } = string.Empty;
-        public decimal Price { get; set; }
     }
 
     private List<ItemFormModel> newPackageItems = new()
     {
-        new ItemFormModel { Name = "Buty sportowe", Price = 199.99m },
-        new ItemFormModel { Name = "Spodnie jeansowe", Price = 129.99m }
+        new ItemFormModel { Name = "Buty sportowe" },
+        new ItemFormModel { Name = "Spodnie jeansowe" }
     };
 
     // Słownik wybranych produktów do zwrotu dla danej paczki: packageId -> Set(itemId)
@@ -395,7 +393,7 @@
         }
     }
 
-    private void AddItemField() => newPackageItems.Add(new ItemFormModel { Name = "", Price = 50.0m });
+    private void AddItemField() => newPackageItems.Add(new ItemFormModel { Name = "" });
     private void RemoveItemField(int index)
     {
         if (newPackageItems.Count > 1) newPackageItems.RemoveAt(index);
@@ -408,7 +406,7 @@
         {
             var itemsToDeclare = newPackageItems
                 .Where(i => !string.IsNullOrWhiteSpace(i.Name))
-                .Select(i => new PackageItem { Name = i.Name.Trim(), Price = i.Price })
+                .Select(i => new PackageItem { Name = i.Name.Trim() })
                 .ToList();
 
             var pkg = await OrderService.CreatePackageAsync(

@@ -6,7 +6,6 @@ public class PackageItem
     public int PackageId { get; set; }
     public Package Package { get; set; } = null!;
     public string Name { get; set; } = string.Empty;
-    public decimal Price { get; set; }
 
     /// <summary>
     /// Foreign key pointing to the return delivery (Package) in which this item is being returned.

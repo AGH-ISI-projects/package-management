@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 using MySql.EntityFrameworkCore.Metadata;
 
 #nullable disable
@@ -25,7 +25,6 @@ namespace PackageDeliverySystem.Infrastructure.Data.Migrations
                         .Annotation("MySQL:ValueGenerationStrategy", MySQLValueGenerationStrategy.IdentityColumn),
                     PackageId = table.Column<int>(type: "int", nullable: false),
                     Name = table.Column<string>(type: "varchar(150)", maxLength: 150, nullable: false),
-                    Price = table.Column<decimal>(type: "decimal(10,2)", precision: 10, scale: 2, nullable: false),
                     ReturnPackageId = table.Column<int>(type: "int", nullable: true)
                 },
                 constraints: table =>

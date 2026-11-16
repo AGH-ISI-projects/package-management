@@ -17,7 +17,7 @@ Schemat każdego opisu: przygotowanie → akcja → weryfikacja.
 
 ## Etap 2: Potwierdzenie depozytu (diagram 02)
 
-- **WF03 – Pusta skrytka (odmowa odbioru przez kuriera)**: Przygotowuje paczkę i kuriera, kurier zgłasza że skrytka jest pusta, sprawdza że paczka została anulowana, zapisana i poszło powiadomienie.
+- **WF03 – Pusta skrytka (brak odbioru przez kuriera)**: Przygotowuje paczkę i kuriera, kurier zgłasza że skrytka jest pusta, sprawdza że paczka została anulowana, zapisana i poszło powiadomienie.
 - **WF04 – Nienadanie w 48 h**: Przygotowuje paczkę z minionym terminem nadania, uruchamia zadanie w tle, sprawdza że paczka została anulowana, zapisana i poszło powiadomienie.
 - **WF24 – Próba nadania po terminie**: Próbuje potwierdzić włożenie paczki do skrytki po upływie 48-godzinnego okna depozytu, sprawdza że rzucany jest wyjątek o wygaśnięciu rezerwacji.
 

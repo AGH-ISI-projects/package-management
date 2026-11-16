@@ -111,7 +111,6 @@ namespace PackageDeliverySystem.Infrastructure.Data
                 .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<PackageItem>().Property(pi => pi.Name).HasMaxLength(150);
-            modelBuilder.Entity<PackageItem>().Property(pi => pi.Price).HasPrecision(10, 2);
         }
     }
 }

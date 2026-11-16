@@ -51,8 +51,8 @@ using (var scope = serviceProvider.CreateScope())
     {
         var demoItems = new[]
         {
-            new PackageItem { Name = "Słuchawki bezprzewodowe", Price = 249.99m },
-            new PackageItem { Name = "Etui ochronne", Price = 49.99m }
+            new PackageItem { Name = "Słuchawki bezprzewodowe" },
+            new PackageItem { Name = "Etui ochronne" }
         };
 
         var package = await orderService.CreatePackageAsync(
