@@ -7,37 +7,41 @@ skinparam roundcorner 5
 entity "User" as user {
   * Id : INTEGER <<PK>>
   --
-  * Name : VARCHAR(100)
-  * Surname : VARCHAR(100)
+  * Name : VARCHAR(60)
+  * Surname : VARCHAR(60)
   * Email : VARCHAR(255)
   * PhoneNumber : VARCHAR(20)
+  * Role : ENUM (CUSTOMER, COURIER, OPERATOR)
   Rank : INTEGER
+  Latitude : DOUBLE
+  Longitude : DOUBLE
 }
 
 entity "ParcelLocker" as locker {
-  * LockerId : INTEGER <<PK>>
+  * Id : INTEGER <<PK>>
   --
   * Latitude : DOUBLE
   * Longitude : DOUBLE
   * Country : VARCHAR(100)
   * City : VARCHAR(100)
   * Street : VARCHAR(100)
-  * PostalCode : VARCHAR(20)
+  * PostalCode : VARCHAR(30)
   * Number : VARCHAR(20)
 }
 
 entity "Box" as box {
-  * LockerId : INTEGER <<PK>>
+  * Id : INTEGER <<PK>>
   --
-  * PointId : INTEGER <<FK>>
+  * ParcelLockerId : INTEGER <<FK>>
   * Size : ENUM (SMALL, MEDIUM, LARGE)
+  * Version : INTEGER
 }
 
 entity "Package" as package {
   * PackageId : INTEGER <<PK>>
   --
-  * SendingLockerId : INTEGER <<FK>>
-  * DestinationLockerId : INTEGER <<FK>>
+  BoxId : INTEGER NULL <<FK>>
+  DestinationBoxId : INTEGER NULL <<FK>>
   * Status : ENUM
   * SenderId : INTEGER <<FK>>
   * RecipientId : INTEGER <<FK>>
@@ -53,16 +57,17 @@ entity "Package" as package {
   DepositConfirmedAt : DATETIME NULL
   Size : ENUM
   OriginalPackageId : INTEGER NULL <<FK>>
+  PickupCode : VARCHAR(6) NULL
 }
 
 entity "Payment" as payment {
   * Id : INTEGER <<PK>>
   --
   * PackageId : INTEGER <<FK>>
-  * PayerEmail : VARCHAR(200)
+  * PayerEmail : VARCHAR(255)
   * Amount : DECIMAL(10,2)
   * Status : ENUM (PENDING, COMPLETED, FAILED)
-  ExternalReference : VARCHAR(2000)
+  ExternalReference : VARCHAR(100)
   * CreatedAt : DATETIME
   CompletedAt : DATETIME NULL
 }
@@ -72,14 +77,13 @@ entity "PackageItem" as item {
   --
   * PackageId : INTEGER <<FK>>
   * Name : VARCHAR(150)
-  * Price : DECIMAL(10,2)
   ReturnPackageId : INTEGER NULL <<FK>>
 }
 
 ' Relacje standardowe
-locker ||--|{ box : "LockerId"
-box ||--o{ package : "SendingLockerId"
-box ||--o{ package : "DestinationLockerId"
+locker ||--|{ box : "ParcelLockerId"
+box |o--o{ package : "BoxId"
+box |o--o{ package : "DestinationBoxId"
 user ||--o{ package : "SenderId"
 user ||--o{ package : "RecipientId"
 user ||--o{ package : "CourierId"

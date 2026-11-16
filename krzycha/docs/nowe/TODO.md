@@ -11,34 +11,34 @@ Ten dokument zawiera:
 Po ostatnich zmianach w kodzie (usunięcie martwego pola `Price`, dodanie serwisu anulowania `CancelPackageAsync` oraz naprawa wygaszania nieodebranych paczek `Delivered`), należy zaktualizować poniższe pliki w katalogu `docs/`:
 
 ### 1. Diagram Klas (`docs/nowe/class/class-diagram.puml`)
-- [ ] **Klasa `Package`**:
+- [x] **Klasa `Package`**:
   - Zmienić sygnaturę metody:
     - Było: `+PackageItem AddItem(string name, decimal price)`
     - Jest: `+PackageItem AddItem(string name)`
   - Upewnić się, że metoda `Deliver()` w opisie/notatce aktualizuje czas wygaśnięcia `ExpiredAt = DeliveredAt + 48h`.
   - W metodzie `Expire()` zaktualizować warunek (dozwolona dla `Accepted`, `Shipped`, `Delivered` po upływie deadline).
-- [ ] **Klasa `PackageItem`**:
+- [x] **Klasa `PackageItem`**:
   - Usunąć atrybut `+decimal Price`. Klasa ma mieć wyłącznie: `Id`, `PackageId`, `Package`, `Name`, `ReturnPackageId`, `ReturnPackage`, `IsReturned`.
-- [ ] **Interfejs `IPackageOrderService` i klasa `PackageOrderService`**:
+- [x] **Interfejs `IPackageOrderService` i klasa `PackageOrderService`**:
   - Dodać nową metodę:
     ```plantuml
     +Task CancelPackageAsync(int packageId, int? requestingUserId = null)
     ```
   - Dodać relację asocjacji/zależności `PackageOrderService` do `INotificationService` (wstrzyknięcie notyfikacji).
-- [ ] **Interfejs `IPackageRepository` i klasa `PackageRepository`**:
+- [x] **Interfejs `IPackageRepository` i klasa `PackageRepository`**:
   - W metodzie `GetPackagesRequiringExpirationAsync()` dodać w opisie/stereotypie uwzględnienie statusu `Delivered` (obok `Accepted` i `Shipped`).
-- [ ] **Ponowne wygenerowanie pliku PNG**:
+- [x] **Ponowne wygenerowanie pliku PNG**:
   - Wygenerować zaktualizowany `class-diagram.png` z pliku `.puml`.
 
 ---
 
 ### 2. Diagramy ERD (`docs/nowe/er/`)
-- [ ] **Plik PlantUML (`docs/nowe/er/er-diagram.puml`)**:
+- [x] **Plik PlantUML (`docs/nowe/er/er-diagram.puml`)**:
   - W encji `PackageItem` usunąć wiersz:
     ```plantuml
     * Price : DECIMAL(10,2)
     ```
-- [ ] **Plik Draw.io (`docs/nowe/er/IO - diagram ER - rozszerzony.drawio` oraz `.drawio.xml`)**:
+- [x] **Plik Draw.io (`docs/nowe/er/IO - diagram ER - rozszerzony.drawio` oraz `.drawio.xml`)**:
   - Otworzyć diagram w narzędziu Draw.io (lub rozszerzeniu VS Code).
   - W tabeli `PackageItem` usunąć wiersz z atrybutem `Price` (`DECIMAL(10,2)`).
   - Skorygować wysokość ramki tabeli po usunięciu wiersza.
@@ -47,14 +47,14 @@ Po ostatnich zmianach w kodzie (usunięcie martwego pola `Price`, dodanie serwis
 ---
 
 ### 3. Diagramy Sekwencji (`docs/nowe/sekwencje/sequence-diagrams.puml`)
-- [ ] **Diagram 01 – Zamówienie (`01-order-and-payment`)**:
+- [x] **Diagram 01 – Zamówienie (`01-order-and-payment`)**:
   - W komunikacie od Klienta:
     - Było: `Sender -> Web: ... and define items list [name, price]`
     - Powinno być: `Sender -> Web: ... and define items list [name]`
   - W zapytaniu do bazy:
     - Było: `OrderSvc -> DB: INSERT Package(...) + INSERT PackageItems(PackageId, Name, Price)`
     - Powinno być: `OrderSvc -> DB: INSERT Package(...) + INSERT PackageItems(PackageId, Name)`
-- [ ] **Sekwencja Anulowania (nowy fragment / alternatywa w Diagramie 01 lub 03)**:
+- [x] **Sekwencja Anulowania (nowy fragment / alternatywa w Diagramie 01 lub 03)**:
   - Dodać interakcję anulowania przez serwis:
     ```plantuml
     Sender -> Web: Anuluj zamówienie (Cancel)
@@ -67,28 +67,28 @@ Po ostatnich zmianach w kodzie (usunięcie martwego pola `Price`, dodanie serwis
     OrderSvc -> NotificationSvc: NotifyAsync("system", ...)\ni opcjonalnie NotifyAsync(sender.Email, ...)
     Web <-- OrderSvc: Sukces anulowania
     ```
-- [ ] **Diagram 05 – Wygaszanie nieodebranej paczki po 48 h**:
+- [x] **Diagram 05 – Wygaszanie nieodebranej paczki po 48 h**:
   - Dodać lub uzupełnić ścieżkę tła:
     `Hangfire -> AcceptanceSvc: ProcessExpiredPackagesAsync()`
     `AcceptanceSvc -> PackageRepo: GetPackagesRequiringExpirationAsync()` (wybiera paczki `Delivered`, dla których `ExpiredAt < now`)
     `AcceptanceSvc -> Package: Expire()`
     `AcceptanceSvc -> PackageRepo: UpdateAsync(package)`
     `AcceptanceSvc -> NotificationSvc: NotifyAsync("system", "Package expired...")`
-- [ ] **Ponowne wygenerowanie grafik sekwencji**:
+- [x] **Ponowne wygenerowanie grafik sekwencji**:
   - Zaktualizować odpowiednie pliki PNG w `docs/nowe/sekwencje/`.
 
 ---
 
 ### 4. Dokumentacja LaTeX (`docs/dokumentacja_zmian.tex`)
-- [ ] **Rozdział 2 (Wprowadzone Zmiany)**:
+- [x] **Rozdział 2 (Wprowadzone Zmiany)**:
   - W tabeli plików:
     - W wierszu `PackageItem.cs` usunąć `\texttt{Price}`.
     - W wierszu `IPackageOrderService.cs` dopisać informację o dodaniu metody `CancelPackageAsync`.
     - W wierszu `PackageRepository.cs` dopisać informację o uwzględnieniu statusu `Delivered` w wygaszaniu.
-- [ ] **Rozdział 3 (Aktualizacja Diagramów)**:
+- [x] **Rozdział 3 (Aktualizacja Diagramów)**:
   - Zaktualizować opis diagramu 01 (zamiana `[name, price]` na `[name]`).
   - Dodać krótki podpunkt o obsłudze przypadku użycia anulowania przez `CancelPackageAsync`.
-- [ ] **Kompilacja PDF**:
+- [x] **Kompilacja PDF**:
   - Przekompilować `dokumentacja_zmian.tex` do `dokumentacja_zmian.pdf` za pomocą `pdflatex` / TeXStudio.
 
 ---

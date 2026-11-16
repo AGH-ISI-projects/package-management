@@ -1,0 +1,167 @@
+\documentclass[10.5pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{polski}
+\usepackage[top=1.8cm,bottom=1.8cm,left=2cm,right=2cm]{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{titlesec}
+
+\definecolor{primary}{RGB}{24, 76, 120}
+\definecolor{secondary}{RGB}{41, 128, 185}
+\definecolor{accent}{RGB}{39, 174, 96}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    urlcolor=secondary
+}
+
+\titleformat{\section}{\color{primary}\normalfont\large\bfseries}{\thesection.}{0.8em}{}[\color{primary}\titlerule]
+\titleformat{\subsection}{\color{secondary}\normalfont\normalsize\bfseries}{\thesubsection.}{0.8em}{}
+\titlespacing*{\section}{0pt}{1.2ex plus 0.5ex minus 0.2ex}{0.8ex plus 0.2ex}
+\titlespacing*{\subsection}{0pt}{1.0ex plus 0.3ex minus 0.2ex}{0.5ex plus 0.2ex}
+
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    backgroundcolor=\color{black!4},
+    frame=single,
+    rulecolor=\color{black!15},
+    breaklines=true,
+    tabsize=2,
+    showstringspaces=false
+}
+
+\begin{document}
+
+\begin{center}
+    {\Large \textbf{\color{primary}System Obsługi Sieci Paczkomatów}}\\[0.15cm]
+    {\large \textbf{Dokumentacja Rozbudowy o Moduł Zwrotów Częściowych}}\\[0.1cm]
+    {\footnotesize Inżynieria Oprogramowania --- Etap 3 (Wymiana Projektów) --- Grupa ,,Krzycha''}\\[0.25cm]
+    \small \textbf{Autorzy:} Filip Kontek, Marcel Kosmala, Igor Krzystek \quad$\vert$\quad \textbf{Prowadzący:} dr inż. Marek Zachara\\
+    \footnotesize Akademia Górniczo-Hutnicza w Krakowie, Wydział Elektrotechniki, Automatyki, Informatyki i Inżynierii Biomedycznej
+\end{center}
+
+\vspace{-0.1cm}
+\hrule
+\vspace{0.25cm}
+
+\section{Wstęp i Zakres Prac}
+
+W ramach trzeciego etapu projektu laboratoryjnego zespół otrzymał do analizy, przetestowania i rozbudowy system obsługi paczkomatów autorstwa grupy ,,Krzycha''. Zadanie zostało podzielone na dwa ściśle określone obszary:
+\begin{enumerate}[leftmargin=*,itemsep=1pt]
+    \item \textbf{Zadanie 1 (Weryfikacja procesu nadania i dostarczenia):} Opracowanie zestawu scenariuszy testowych weryfikujących pełny cykl życia przesyłki z uwzględnieniem sytuacji awaryjnych (anulowanie na etapie zamówienia/nadania, pusta skrytka przy odbiorze przez kuriera, timeouty tranzytowe, błędy odbioru). Każdy test zorganizowano w czytelnym podziale na trzy sekcje: \textit{Arrange} (przygotowanie), \textit{Act} (wywołanie metod biznesowych) oraz \textit{Assert} (weryfikacja stanu).
+    \item \textbf{Zadanie 2 (Nowa funkcjonalność --- Obsługa zwrotów w tym częściowych):} Rozbudowa systemu o możliwość wyznaczenia zawartości przesyłki oraz zgłoszenia i realizacji zwrotu jednego lub kilku zamówionych produktów w ramach odebranej przesyłki.
+\end{enumerate}
+
+\section{Decyzje Architektoniczne i Eliminacja Redundancji}
+
+W toku analizy inżynierskiej zrezygnowano ze sztucznego podejścia opartego o osobną tabelę ze zdublowaną logistyką tranzytu (antywzorzec spotykany w generatorach kodu). Wdrożono rozwiązanie oparte o czyste zasady \textbf{Domain-Driven Design (DDD)} oraz zasadę \textbf{DRY (Don't Repeat Yourself)}:
+
+\begin{itemize}[leftmargin=*,itemsep=2pt]
+    \item \textbf{Rozróżnienie jednostki logistycznej od handlowej:}
+    W sieci paczkomatów przesyłka (\texttt{Package}) to jednostka transportowa (gabaryt, rezerwacja skrytek, transport kurierski, kod odbioru). Zawartość paczki to niezależne produkty (\texttt{PackageItem}). Klient nie zwraca części fizycznego kartonu, lecz konkretne pozycje ze środka.
+    \item \textbf{Zwrot jako nowa przesyłka powrotna:}
+    Fizyczny proces zwrotu podlega dokładnie tym samym prawom logistycznym co pierwotne nadanie. Zamiast tworzyć osobny serwis kurierski dla zwrotów, serwis zwrotów (\texttt{PackageReturnService}) tworzy nową instancję \texttt{Package} za pośrednictwem istniejącego \texttt{PackageOrderService}, automatycznie alokując wolne skrytki i odwracając paczkomaty (nadanie w paczkomacie odbiorcy, dostawa do paczkomatu sklepu).
+    \item \textbf{Płynna obsługa zwrotów częściowych i sekwencyjnych:}
+    Każdy produkt (\texttt{PackageItem}) posiada powiązanie \texttt{ReturnPackageId}. Jeśli klient zwraca jeden produkt, zostaje on przypisany do nowej paczki zwrotnej, a pozostałe produkty pozostają u klienta. Klient może po tygodniu zgłosić kolejny zwrot drugiego produktu --- system utworzy dla niego drugą, niezależną przesyłkę zwrotną.
+    \item \textbf{Brak dualizmu stanów:}
+    Oryginalna paczka zachowuje historyczny status \texttt{PackageStatus.Collected} (nie zakłócając pierwotnego cyklu życia), udostępniając właściwości pomocnicze \texttt{HasReturns} oraz \texttt{AreAllItemsReturned}.
+\end{itemize}
+
+\section{Wprowadzone Zmiany w Strukturze Kodu}
+
+\begin{table}[h!]
+\centering
+\footnotesize
+\begin{tabularx}{\textwidth}{l p{3.0cm} X}
+\toprule
+\textbf{Plik} & \textbf{Warstwa} & \textbf{Opis wprowadzonych modyfikacji} \\
+\midrule
+\texttt{PackageItem.cs} & Core (Domain) & Nowa encja pozycji przesyłki (\texttt{Id}, \texttt{PackageId}, \texttt{Name}, \texttt{ReturnPackageId}, \texttt{IsReturned}). Pole \texttt{Price} zostało usunięte --- system nie rozlicza wartości towarów, opłata za przesyłkę jest w \texttt{Payment}. \\
+\addlinespace
+\texttt{Package.cs} & Core (Domain) & Dodanie kolekcji \texttt{Items}, relacji \texttt{OriginalPackageId} / \texttt{ReturnDeliveries}, właściwości statusowych oraz metody \texttt{AddItem(name)}. \texttt{Deliver()} ustawia \texttt{ExpiredAt = DeliveredAt + 48h}, a \texttt{Expire()} działa tylko dla \texttt{Accepted}, \texttt{Shipped} i \texttt{Delivered} po upływie \texttt{ExpiredAt}. \\
+\addlinespace
+\texttt{IPackageOrderService.cs} & Core (Domain) & Rozszerzenie kontraktu tworzenia paczki o opcjonalną listę deklarowanych produktów (\texttt{items}) oraz nowa metoda \texttt{CancelPackageAsync(packageId, requestingUserId?)}. \\
+\addlinespace
+\texttt{IPackageReturnService.cs} & Core (Domain) & Kontrakt operacji tworzenia przesyłek zwrotnych i zapytań o zwracalne towary. \\
+\addlinespace
+\texttt{DeliveryDbContext.cs} & Infrastructure & Dodanie \texttt{DbSet<PackageItem>} oraz mapowania relacji self-referencing w EF Core. \\
+\addlinespace
+\texttt{PackageRepository.cs} & Infrastructure & Eager loading pozycji \texttt{Items} oraz skrzynek paczkomatowych w \texttt{GetByIdAsync}. \texttt{GetPackagesRequiringExpirationAsync} uwzględnia teraz także paczki \texttt{Delivered} (nieodebrane w 48 h). \\
+\addlinespace
+\texttt{PackageOrderService.cs} & Infrastructure & Zapisywanie zadeklarowanych produktów przy składaniu zamówienia. Anulowanie przez serwis: sprawdzenie, czy wołający jest nadawcą lub przypisanym operatorem, \texttt{Package.Cancel()}, zapis i powiadomienia. \\
+\addlinespace
+\texttt{PackageReturnService.cs} & Infrastructure & Orkiestracja zwrotu: walidacja uprawnień, blokada duplikatów, odwrócenie paczkomatów, alokacja przesyłki powrotnej. \\
+\addlinespace
+\texttt{Program.cs} (Cli \& Web) & Application / UI & Rejestracja \texttt{IPackageReturnService} w kontenerze Dependency Injection. \\
+\addlinespace
+\texttt{sequence-diagrams.puml} & Dokumentacja & Diagram 01: lista produktów (sama nazwa) i anulowanie; diagram 05: wygaszanie nieodebranej paczki; nowy diagram 06 dla zwrotu częściowego. \\
+\addlinespace
+\texttt{class-diagram.puml} & Dokumentacja & Encja \texttt{PackageItem}, relacje zwrotów \texttt{OriginalPackageId}, serwisy zamówień, zwrotów i repozytorium paczek. \\
+\addlinespace
+Diagram ER (\texttt{er/}) & Dokumentacja & Tabela \texttt{PackageItem} bez \texttt{Price}, kolumny \texttt{BoxId} / \texttt{DestinationBoxId}, \texttt{PickupCode}, długości pól zgodne z \texttt{DeliveryDbContext}. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Aktualizacja Diagramów Sekwencji i Modelu UML}
+
+W katalogu \texttt{docs/} zaktualizowano dokumentację projektową w języku PlantUML:
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+    \item \textbf{Aktualizacja diagramu 01 (\texttt{01-order-and-payment}):}
+    Diagram uwzględnia krok, w którym nadawca definiuje listę przesyłanych towarów (\texttt{items: [name]}). Metoda \texttt{CreatePackageAsync} przyjmuje kolekcję pozycji, które są atomowo zapisywane w bazie danych jako rekordy w tabeli \texttt{PackageItems} powiązane z nowo utworzoną przesyłką.
+    \item \textbf{Anulowanie zamówienia (diagram 01, sekcja \textit{cancel}):}
+    Nadawca anuluje paczkę przez \texttt{PackageOrderService.CancelPackageAsync}. Serwis pobiera paczkę, sprawdza uprawnienia (nadawca lub przypisany operator), wywołuje \texttt{Package.Cancel()} (dozwolone tylko w statusie \texttt{Ordered} lub \texttt{Accepted}), zapisuje zmianę i wysyła powiadomienia. Status \texttt{Cancelled} zwalnia obie zarezerwowane skrytki.
+    \item \textbf{Nieodebrana paczka (diagram 05, sekcja \textit{fallback}):}
+    Zadanie Hangfire \texttt{ProcessExpiredPackagesAsync} co minutę pobiera paczki \texttt{Accepted}, \texttt{Shipped} i \texttt{Delivered} z \texttt{ExpiredAt < now} i oznacza je jako \texttt{Expired}.
+    \item \textbf{Nowy diagram 06 (\texttt{06-return-process}):}
+    Dodano kompletny diagram sekwencji dla procesu zwrotu (zarówno częściowego, jak i całkowitego):
+    \begin{itemize}[itemsep=1pt]
+        \item \textbf{Faza 1 (Pobranie zwracalnych pozycji):} Wywołanie \texttt{GetAvailableItemsForReturnAsync} weryfikuje tożsamość klienta (\texttt{RecipientId}) i zwraca wyłącznie produkty, dla których \texttt{IsReturned == false}.
+        \item \textbf{Faza 2 (Utworzenie zwrotu):} Klient zaznacza zwracane pozycje. Metoda \texttt{CreateReturnDeliveryAsync} sprawdza status pierwotnej paczki (\texttt{Collected}), odwraca role (odbiorca staje się nadawcą zwrotu, a sklep odbiorcą) oraz paczkomaty, wywołuje standardowy \texttt{PackageOrderService} alokujący skrytki, powiązuje produkty kluczem \texttt{ReturnPackageId} i zleca asynchroniczne powiadomienie Hangfire.
+        \item \textbf{Zasada ponownego użycia cyklu logistycznego:} Utworzona paczka zwrotna przechodzi przez ten sam istniejący pipeline kurierski (diagramy 02--05), co eliminuje redundancję kodu.
+    \end{itemize}
+    \item \textbf{Aktualizacja diagramu klas (\texttt{class-diagram.puml}):} Wprowadzono encję \texttt{PackageItem}, asocjację $1 \dots *$ z \texttt{Package}, rekurencyjną relację zwrotu (\texttt{OriginalPackage} / \texttt{ReturnDeliveries}) oraz serwisy \texttt{PackageOrderService} (z \texttt{CancelPackageAsync}), \texttt{PackageReturnService} i \texttt{PackageRepository}.
+\end{enumerate}
+
+\newpage
+\section{Zestawienie Scenariuszy Testowych}
+
+{\sloppy Wszystkie scenariusze znajdują się w pliku \texttt{PackageWorkflowTests.cs} (projekt \texttt{PackageDeliverySystem.Tests}). Testy działają w pamięci (zależności zastąpione przez Moq), bez bazy danych. Każdy ma trzy części: przygotowanie, wywołanie metod, weryfikację. Numeracja WF01--WF32 odpowiada opisom w pliku \texttt{opisy-testow-workflow-1.md} (katalog \texttt{docs/nowe}); grupy odpowiadają diagramom sekwencji.\par}
+
+\subsection{Zadanie 1: Proces nadania i dostarczenia}
+\begin{itemize}[leftmargin=*,itemsep=1.5pt]
+    \item \textbf{Etap 0 --- pełny proces (diagramy 01--05):} WF01 --- zamówienie, płatność, depozyt, akceptacja, kurier, wysyłka, doręczenie, odbiór kodem i ocena.
+    \item \textbf{Etap 1 --- zamówienie i płatność:} WF02 brak wolnej skrytki, WF10 płatność nieudana i ponowiona, WF14 idempotentne potwierdzenie płatności, WF22 ten sam paczkomat nadawczy i odbiorczy, WF23 blokada podwójnej płatności, WF29 anulowanie na etapie zamówienia (\texttt{CancelPackageAsync}).
+    \item \textbf{Etap 2 --- depozyt:} WF03 kurier zastaje pustą skrytkę, WF04 nienadanie w 48 h (zadanie w tle), WF24 próba nadania po terminie.
+    \item \textbf{Etap 3 --- decyzja operatora:} WF05 odrzucenie przez operatora, WF13 akceptacja bez płatności lub depozytu, WF16 przypisanie kuriera/operatora za wcześnie, WF25 niezgodna skrytka lub gabaryt, WF30 anulowanie po akceptacji (\texttt{CancelPackageAsync}).
+    \item \textbf{Etap 4 --- transport:} WF06 zgubienie w transporcie (przekroczony termin, \texttt{Expired}), WF09 blokada anulowania po wysyłce, WF11 doręczenie za wcześnie, WF12 odrzucenie po wysyłce.
+    \item \textbf{Etap 5 --- odbiór i ocena:} WF07 odbiór przez obcą osobę i zły kod, WF15 walidacja oceny kuriera, WF26 ocena bez przypisanego kuriera, WF31 nieodebranie paczki w 48 h (zadanie \texttt{ProcessExpiredPackagesAsync}) oraz blokada wygaśnięcia przed terminem.
+\end{itemize}
+
+\subsection{Zadanie 2: Zwroty, w tym częściowe}
+\begin{itemize}[leftmargin=*,itemsep=1.5pt]
+    \item \textbf{WF08:} zwrot 1 z 3 produktów --- nowa paczka zwrotna, odwrócone role i paczkomaty, pozostałe produkty zostają u klienta.
+    \item \textbf{WF17:} blokada zwrotu przed odbiorem (\texttt{Ordered}, \texttt{Accepted}, \texttt{Preparing}, \texttt{Shipped}).
+    \item \textbf{WF18, WF27:} zwrot lub lista produktów dla osoby, która nie jest odbiorcą --- błąd.
+    \item \textbf{WF19:} ponowny zwrot tego samego produktu --- błąd.
+    \item \textbf{WF20:} zwroty etapami --- drugi produkt w osobnej paczce zwrotnej.
+    \item \textbf{WF21:} brak wolnej skrytki na zwrot --- produkt nie zostaje oznaczony jako zwrócony.
+    \item \textbf{WF28:} pusta lista produktów lub produkt z innej paczki --- błąd.
+    \item \textbf{WF32:} zwrot wszystkich produktów --- \texttt{AreAllItemsReturned == true}.
+\end{itemize}
+
+\section{Uruchomienie Testów}
+
+\begin{lstlisting}
+dotnet test
+\end{lstlisting}
+
+Plik zawiera 33 metody testowe; dwie z nich są parametryzowane (\texttt{[Theory]}: WF13 --- 2 przypadki, WF17 --- 4 przypadki), co daje łącznie 37 przypadków testowych.
+
+\end{document}

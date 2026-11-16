@@ -14,13 +14,11 @@ participant "Payment\nGateway" as Gateway
 queue "Hangfire\nJob Queue" as Hangfire
 
 Sender -> Web: Open "Send new package"
-Web -> OrderSvc: GetParcelLockers()
-OrderSvc -> DB: SELECT ParcelLocker + Boxes
-DB --> OrderSvc: lockers
-OrderSvc --> Web: lockers
+Web -> DB: SELECT ParcelLocker + Boxes
+DB --> Web: lockers
 Web --> Sender: list / map of lockers
 
-Sender -> Web: choose origin locker, destination locker,\nsize (S/M/L), recipient,\nand define items list [name, price]
+Sender -> Web: choose origin locker, destination locker,\nsize (S/M/L), recipient,\nand define items list [name]
 
 Web -> OrderSvc: CreatePackageAsync(senderId, recipientId,\noriginLockerId, destLockerId, size, items)
 OrderSvc -> DB: FindFreeBoxAsync(originLockerId, size)
@@ -37,7 +35,7 @@ else origin box found
         OrderSvc --> Web: throw InvalidOperationException
         Web --> Sender: "No free box - choose another locker/size"
     else destination box found
-        OrderSvc -> DB: INSERT Package(Status=Ordered,\nBoxId, DestinationBoxId, DepositDeadline=now+48h)\n+ INSERT PackageItems(PackageId, Name, Price)
+        OrderSvc -> DB: INSERT Package(Status=Ordered,\nBoxId, DestinationBoxId, DepositDeadline=now+48h)\n+ INSERT PackageItems(PackageId, Name)
         OrderSvc --> Web: package (with Items)
         Web --> Sender: package created (items registered)
 
@@ -74,6 +72,33 @@ note over OrderSvc, DB
   Collected (or cancelled/rejected/expired) - no other order can take
   either box in the meantime. See BoxRepository.FindFreeBoxAsync.
 end note
+
+== cancel (sender, while Ordered / Accepted) ==
+Sender -> Web: Cancel order (packageId)
+Web -> OrderSvc: CancelPackageAsync(packageId, senderId)
+OrderSvc -> DB: GetByIdAsync(packageId)
+DB --> OrderSvc: package
+
+alt requestingUserId is neither SenderId nor OperatorId
+    OrderSvc --> Web: throw InvalidOperationException\n"Only the sender or assigned operator can cancel"
+    Web --> Sender: error
+else Status is not Ordered / Accepted
+    OrderSvc -> OrderSvc: package.Cancel()\n(throws "Cannot cancel package in status ...")
+    OrderSvc --> Web: error
+    Web --> Sender: error
+else OK
+    OrderSvc -> OrderSvc: package.Cancel()\n(Status=Cancelled)
+    OrderSvc -> DB: UpdateAsync(package)
+    note right of DB
+      Cancelled is a terminal status, so both
+      reserved boxes become free again
+      (BoxRepository.FindFreeBoxAsync)
+    end note
+    OrderSvc -> Hangfire: Enqueue(SendNotification("system",\n"Package cancelled"))
+    OrderSvc -> Hangfire: Enqueue(SendNotification(sender.Email,\n"Your package has been cancelled"))
+    OrderSvc --> Web: OK
+    Web --> Sender: "Package cancelled"
+end
 
 @enduml
 
@@ -137,10 +162,8 @@ database "MySQL\n(EF Core)" as DB
 queue "Hangfire\nJob Queue" as Hangfire
 
 Operator -> Web: Open "Packages ready for processing"
-Web -> AcceptSvc: GetPackages(status = Ordered)
-AcceptSvc -> DB: SELECT
-DB --> AcceptSvc: list
-AcceptSvc --> Web: list
+Web -> DB: SELECT Packages WHERE Status = Ordered
+DB --> Web: list
 Web --> Operator: list
 
 alt Accept
@@ -199,10 +222,8 @@ FulfillSvc --> Web: OK
 
 == pick up ==
 Courier -> Web: Open "Packages assigned to me"
-Web -> FulfillSvc: GetPackagesForCourier(courierId)
-FulfillSvc -> DB: SELECT WHERE CourierId = @id
-DB --> FulfillSvc: list
-FulfillSvc --> Web: list
+Web -> DB: SELECT Packages WHERE CourierId = @id
+DB --> Web: list
 Web --> Courier: list
 
 Courier -> Web: Pick up (packageId)
@@ -218,7 +239,7 @@ FulfillSvc --> Web: OK
 Courier -> Web: Deliver (packageId)
 Web -> FulfillSvc: DeliverPackageAsync(packageId)
 Courier -> Box: open destination box
-FulfillSvc -> FulfillSvc: package.Deliver()\n(Status=Delivered, DeliveredAt=now,\ngenerates PickupCode)
+FulfillSvc -> FulfillSvc: package.Deliver()\n(Status=Delivered, DeliveredAt=now,\nExpiredAt=now+48h, generates PickupCode)
 FulfillSvc -> DB: SaveChanges()
 FulfillSvc -> Hangfire: Enqueue(SendNotification\n("Package delivered, pickup code: " + PickupCode))
 FulfillSvc --> Web: OK
@@ -242,10 +263,8 @@ participant "RatingService" as RatingSvc
 database "MySQL\n(EF Core)" as DB
 
 Recipient -> Web: Open "My packages"
-Web -> FulfillSvc: GetPackagesForUser(userId)
-FulfillSvc -> DB: SELECT
-DB --> FulfillSvc: packages + statuses
-FulfillSvc --> Web: packages + statuses
+Web -> DB: SELECT Packages WHERE RecipientId = @id
+DB --> Web: packages + statuses
 Web --> Recipient: packages + statuses
 
 Recipient -> Web: Collect (packageId, pickup code)
@@ -286,6 +305,19 @@ note over RatingSvc, DB
   Rank is overwritten by each new rating, not averaged - there is no
   rating history table (see AbstractPerson.Rank).
 end note
+
+== fallback: recipient does not collect within 48 h ==
+queue "Hangfire\nrecurring job" as Recurring
+participant "PackageAcceptanceService" as AcceptSvc
+queue "Hangfire\nJob Queue" as Hangfire
+Recurring -> AcceptSvc: ProcessExpiredPackagesAsync() (every minute)
+AcceptSvc -> DB: GetPackagesRequiringExpirationAsync()
+DB --> AcceptSvc: Accepted / Shipped / Delivered\nwith ExpiredAt < now
+loop each package
+    AcceptSvc -> AcceptSvc: package.Expire()\n(Status=Expired)
+    AcceptSvc -> DB: UpdateAsync(package)
+    AcceptSvc -> Hangfire: Enqueue(SendNotification\n("Package marked as EXPIRED"))
+end
 
 @enduml
 

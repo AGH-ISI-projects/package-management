@@ -66,17 +66,17 @@ class Package {
     +DateTime? ExpiredAt
     +string? PickupCode
 
-    +PackageItem AddItem(string name, decimal price)
+    +PackageItem AddItem(string name)
     +void Accept()
     +void ConfirmDeposit()
     +void Prepare()
     +void Ship()
-    +void Deliver()
+    +void Deliver() <<ExpiredAt = DeliveredAt + 48h>>
     +void Collect(string code)
     +void MarkAsReturned()
     +void Reject()
     +void Cancel()
-    +void Expire()
+    +void Expire() <<Accepted/Shipped/Delivered, po ExpiredAt>>
     +void AssignOperator(Operator operatorUser)
     +void AssignCourier(Courier courier)
 }
@@ -101,7 +101,6 @@ class PackageItem {
     +int PackageId
     +Package Package
     +string Name
-    +decimal Price
     +int? ReturnPackageId
     +Package? ReturnPackage
     +bool IsReturned
@@ -161,6 +160,46 @@ together {
     }
 }
 
+together {
+    interface IPackageOrderService {
+        +CreatePackageAsync(senderId, recipientId, originLockerId, destinationLockerId, size, items?) : Task<Package>
+        +CancelPackageAsync(packageId, requestingUserId?) : Task
+    }
+
+    class PackageOrderService
+
+    interface IPackageReturnService {
+        +CreateReturnDeliveryAsync(originalPackageId, customerId, itemIds, originLockerId?, size?) : Task<Package>
+        +GetAvailableItemsForReturnAsync(originalPackageId, customerId) : Task<IReadOnlyList<PackageItem>>
+        +GetReturnDeliveriesForPackageAsync(originalPackageId) : Task<IReadOnlyList<Package>>
+    }
+
+    class PackageReturnService
+}
+
+together {
+    interface IPackageRepository {
+        +GetByIdAsync(id) : Task<Package?>
+        +AddAsync(package) : Task
+        +UpdateAsync(package) : Task
+        +GetAllAsync() : Task<IEnumerable<Package>>
+        +GetPackagesRequiringExpirationAsync() : Task<IEnumerable<Package>>
+        +GetPackagesWithMissedDepositAsync() : Task<IEnumerable<Package>>
+    }
+
+    class PackageRepository
+
+    interface INotificationService {
+        +NotifyAsync(userId, message) : Task
+    }
+}
+
+note bottom of IPackageRepository
+  GetPackagesRequiringExpirationAsync():
+  Accepted / Shipped / Delivered
+  z ExpiredAt < now
+end note
+
 ' ------------relations-------------
 
 AbstractPerson <|-- User
@@ -186,5 +225,19 @@ Package ..> PackageStatus
 Package ..> BoxSize
 Box ..> BoxSize
 Payment ..> PaymentStatus
+
+IPackageOrderService <|.. PackageOrderService
+IPackageReturnService <|.. PackageReturnService
+IPackageRepository <|.. PackageRepository
+
+PackageOrderService --> IPackageRepository
+PackageOrderService --> INotificationService
+PackageReturnService --> IPackageOrderService
+PackageReturnService --> IPackageRepository
+PackageReturnService --> INotificationService
+
+IPackageOrderService ..> Package
+IPackageReturnService ..> PackageItem
+IPackageRepository ..> Package
 
 @enduml
