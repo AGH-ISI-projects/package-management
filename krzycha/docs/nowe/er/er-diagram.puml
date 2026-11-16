@@ -4,14 +4,14 @@ hide circle
 skinparam linetype ortho
 skinparam roundcorner 5
 
-entity "User" as user {
+entity "User (tabela Users)" as user {
   * Id : INTEGER <<PK>>
   --
   * Name : VARCHAR(60)
   * Surname : VARCHAR(60)
   * Email : VARCHAR(255)
   * PhoneNumber : VARCHAR(20)
-  * Role : ENUM (CUSTOMER, COURIER, OPERATOR)
+  * Role : VARCHAR(20) (Customer, Courier, Operator)
   Rank : INTEGER
   Latitude : DOUBLE
   Longitude : DOUBLE
@@ -33,16 +33,16 @@ entity "Box" as box {
   * Id : INTEGER <<PK>>
   --
   * ParcelLockerId : INTEGER <<FK>>
-  * Size : ENUM (SMALL, MEDIUM, LARGE)
+  * Size : VARCHAR(30) <<BoxSize>>
   * Version : INTEGER
 }
 
 entity "Package" as package {
-  * PackageId : INTEGER <<PK>>
+  * Id : INTEGER <<PK>>
   --
   BoxId : INTEGER NULL <<FK>>
   DestinationBoxId : INTEGER NULL <<FK>>
-  * Status : ENUM
+  * Status : VARCHAR(30) <<PackageStatus>>
   * SenderId : INTEGER <<FK>>
   * RecipientId : INTEGER <<FK>>
   CourierId : INTEGER <<FK>>
@@ -53,9 +53,9 @@ entity "Package" as package {
   DeliveredAt : DATETIME NULL
   CollectedAt : DATETIME NULL
   ExpiredAt : DATETIME NULL
-  DepositDeadline : DATETIME NULL
+  * DepositDeadline : DATETIME
   DepositConfirmedAt : DATETIME NULL
-  Size : ENUM
+  * Size : VARCHAR(30) <<BoxSize>>
   OriginalPackageId : INTEGER NULL <<FK>>
   PickupCode : VARCHAR(6) NULL
 }
@@ -66,7 +66,7 @@ entity "Payment" as payment {
   * PackageId : INTEGER <<FK>>
   * PayerEmail : VARCHAR(255)
   * Amount : DECIMAL(10,2)
-  * Status : ENUM (PENDING, COMPLETED, FAILED)
+  * Status : VARCHAR(20) <<PaymentStatus>>
   ExternalReference : VARCHAR(100)
   * CreatedAt : DATETIME
   CompletedAt : DATETIME NULL
@@ -81,18 +81,18 @@ entity "PackageItem" as item {
 }
 
 ' Relacje standardowe
-locker ||--|{ box : "ParcelLockerId"
+locker ||--o{ box : "ParcelLockerId"
 box |o--o{ package : "BoxId"
 box |o--o{ package : "DestinationBoxId"
 user ||--o{ package : "SenderId"
 user ||--o{ package : "RecipientId"
-user ||--o{ package : "CourierId"
-user ||--o{ package : "OperatorId"
+user |o--o{ package : "CourierId"
+user |o--o{ package : "OperatorId"
 package ||--o| payment : "PackageId"
 
 ' Relacje modułu zwrotów (rozszerzenie)
 package ||--o{ package : "OriginalPackageId\n(zwroty)"
-package ||--|{ item : "PackageId\n(pozycje zamówienia)"
+package ||--o{ item : "PackageId\n(pozycje zamówienia)"
 package |o--o{ item : "ReturnPackageId\n(odesłanie towaru)"
 
 @enduml

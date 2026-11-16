@@ -100,11 +100,13 @@ W toku analizy inżynierskiej zrezygnowano ze sztucznego podejścia opartego o o
 \addlinespace
 \texttt{Program.cs} (Cli \& Web) & Application / UI & Rejestracja \texttt{IPackageReturnService} w kontenerze Dependency Injection. \\
 \addlinespace
-\texttt{sequence-diagrams.puml} & Dokumentacja & Diagram 01: lista produktów (sama nazwa) i anulowanie; diagram 05: wygaszanie nieodebranej paczki; nowy diagram 06 dla zwrotu częściowego. \\
+\texttt{sequence-diagrams.puml} & Dokumentacja & Uczestnicy to rzeczywiste klasy (\texttt{Home.razor}, serwisy, \texttt{PackageRepository}, \texttt{BoxRepository}, \texttt{PeopleService}, \texttt{FakePaymentGateway}, \texttt{BackgroundNotificationService}). Diagram 01: lista produktów i anulowanie; 05: wygaszanie nieodebranej paczki; 06: zwrot częściowy. \\
 \addlinespace
 \texttt{class-diagram.puml} & Dokumentacja & Encja \texttt{PackageItem}, relacje zwrotów \texttt{OriginalPackageId}, serwisy zamówień, zwrotów i repozytorium paczek. \\
 \addlinespace
-Diagram ER (\texttt{er/}) & Dokumentacja & Tabela \texttt{PackageItem} bez \texttt{Price}, kolumny \texttt{BoxId} / \texttt{DestinationBoxId}, \texttt{PickupCode}, długości pól zgodne z \texttt{DeliveryDbContext}. \\
+Diagram ER (\texttt{er/}) & Dokumentacja & Kolumny i typy zgodne z migracjami EF Core: \texttt{PackageItem} bez \texttt{Price}, \texttt{Package.Id}, \texttt{BoxId} / \texttt{DestinationBoxId}, \texttt{PickupCode}, \texttt{Box.Version}, enumy zapisane jako \texttt{VARCHAR}. \\
+\addlinespace
+Przypadki użycia (\texttt{use-case/}) & Dokumentacja & Tylko funkcje, które istnieją w kodzie: kurier potwierdza depozyt i zgłasza pustą skrytkę, operator może anulować paczkę, dodane zadanie \texttt{release-missed-deposits}; usunięte logowanie, lokalizacja zastępcza i ręczne ,,Prepare''. \\
 \bottomrule
 \end{tabularx}
 \end{table}

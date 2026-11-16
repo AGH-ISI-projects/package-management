@@ -1,103 +1,133 @@
-' corrected order vs the original drafts: deposit confirmation (02) now happens BEFORE
-' operator acceptance (03), because Package.Accept() requires DepositConfirmedAt to already
-' be set - accepting first was never possible against the real code.
+' Every participant below is a real class from src/ (or the MySQL database / Hangfire
+' itself), and every message is a real method call with the arguments the code passes.
+' "Home.razor" is the Blazor page (src/PackageDeliverySystem.Web/Components/Pages/Home.razor)
+' that drives the whole flow in the demo; it reads lists straight from DeliveryDbContext.
+' Notifications always go through INotificationService.NotifyAsync - in Web that is
+' BackgroundNotificationService, which only does
+' BackgroundJob.Enqueue<EmailNotificationService>(s => s.NotifyAsync(userId, message)).
 
 @startuml 01-order-and-payment
 title 01 - Customer: send new package (order + payment)
 
 actor "User\n(Sender)" as Sender
-participant "Blazor\nWeb App" as Web
+participant "Home.razor\n(Blazor)" as Web
 participant "PackageOrderService" as OrderSvc
+participant "PeopleService" as People
+participant "BoxRepository" as BoxRepo
 participant "PackageIntakeService" as IntakeSvc
-database "MySQL\n(EF Core)" as DB
-participant "Payment\nGateway" as Gateway
-queue "Hangfire\nJob Queue" as Hangfire
+participant "PackageRepository" as PkgRepo
+participant "FakePaymentGateway\n(IPaymentGateway)" as Gateway
+participant "BackgroundNotificationService\n(INotificationService)" as Notify
+database "MySQL\n(DeliveryDbContext)" as DB
 
-Sender -> Web: Open "Send new package"
-Web -> DB: SELECT ParcelLocker + Boxes
+Sender -> Web: open page
+Web -> DB: Db.ParcelLockers.Include(l => l.Boxes).ToListAsync()
 DB --> Web: lockers
-Web --> Sender: list / map of lockers
+Web --> Sender: lockers and boxes
 
-Sender -> Web: choose origin locker, destination locker,\nsize (S/M/L), recipient,\nand define items list [name]
+Sender -> Web: choose origin locker, destination locker,\nsize (Small/Medium/Large), recipient\nand items [name]
+Web -> OrderSvc: CreatePackageAsync(senderId, recipientId,\noriginLockerId, destinationLockerId, size, items)
+OrderSvc -> People: GetUserAsync(senderId)
+People --> OrderSvc: sender / null
+OrderSvc -> People: GetUserAsync(recipientId)
+People --> OrderSvc: recipient / null
 
-Web -> OrderSvc: CreatePackageAsync(senderId, recipientId,\noriginLockerId, destLockerId, size, items)
-OrderSvc -> DB: FindFreeBoxAsync(originLockerId, size)
-DB --> OrderSvc: originBox / null
+alt sender or recipient is null
+    OrderSvc --> Web: throw ArgumentException\n"Sender not found" / "Recipient not found"
+    Web --> Sender: error message
+else both found
+    OrderSvc -> BoxRepo: FindFreeBoxAsync(originLockerId, size)
+    BoxRepo --> OrderSvc: originBox / null
 
-alt no free box at origin
-    OrderSvc --> Web: throw InvalidOperationException\n"No free box - choose another locker/size"
-    Web --> Sender: "No free box - choose another locker/size"
-else origin box found
-    OrderSvc -> DB: FindFreeBoxAsync(destLockerId, size, exclude: originBox.Id)
-    DB --> OrderSvc: destinationBox / null
+    alt originBox is null
+        OrderSvc --> Web: throw InvalidOperationException\n"No free {size} box at the chosen origin locker - pick another locker or size"
+        Web --> Sender: error message
+    else origin box found
+        OrderSvc -> BoxRepo: FindFreeBoxAsync(destinationLockerId, size, originBox.Id)
+        BoxRepo --> OrderSvc: destinationBox / null
 
-    alt no free box at destination
-        OrderSvc --> Web: throw InvalidOperationException
-        Web --> Sender: "No free box - choose another locker/size"
-    else destination box found
-        OrderSvc -> DB: INSERT Package(Status=Ordered,\nBoxId, DestinationBoxId, DepositDeadline=now+48h)\n+ INSERT PackageItems(PackageId, Name)
-        OrderSvc --> Web: package (with Items)
-        Web --> Sender: package created (items registered)
+        alt destinationBox is null
+            OrderSvc --> Web: throw InvalidOperationException\n"No free {size} box at the chosen destination locker - pick another locker or size"
+            Web --> Sender: error message
+        else destination box found
+            OrderSvc -> OrderSvc: new Package { Sender, Recipient, Size,\nBoxId, DestinationBoxId }\n(Status=Ordered, DepositDeadline=now+48h)\n+ package.Items.Add(item) for each item
+            OrderSvc -> PkgRepo: AddAsync(package)
+            PkgRepo -> DB: SaveChangesAsync()\n(INSERT Package + PackageItems(PackageId, Name))
+            OrderSvc --> Web: package
+            Web --> Sender: "Paczka #id została zamówiona"
 
-        Sender -> Web: pay
-        Web -> IntakeSvc: RequestPaymentAsync(packageId, payerEmail, amount)
-        IntakeSvc -> Gateway: InitiatePaymentAsync(payerEmail, amount)
-        Gateway --> IntakeSvc: externalReference
-        IntakeSvc -> DB: INSERT Payment(Status=Pending)
-        IntakeSvc --> Web: paymentUrl / reference
-        Web --> Sender: redirect to payment
+            Sender -> Web: pay
+            Web -> IntakeSvc: RequestPaymentAsync(packageId, payerEmail, amount)
+            IntakeSvc -> PkgRepo: GetByIdAsync(packageId)
+            PkgRepo --> IntakeSvc: package (with Payment)
 
-        Sender -> Gateway: complete payment on gateway's own page
-        Web -> IntakeSvc: ConfirmPaymentAsync(packageId)
-        IntakeSvc -> Gateway: GetPaymentStatusAsync(externalReference)
-        Gateway --> IntakeSvc: Completed / Failed
+            alt package.Payment.Status == Completed
+                IntakeSvc --> Web: throw InvalidOperationException\n"This package has already been paid for."
+            else no completed payment yet
+                IntakeSvc -> Gateway: InitiatePaymentAsync(payerEmail, amount)
+                Gateway --> IntakeSvc: externalReference
+                IntakeSvc -> IntakeSvc: package.Payment = new Payment\n{ PayerEmail, Amount, ExternalReference }\n(Status=Pending)
+                IntakeSvc -> PkgRepo: UpdateAsync(package)
+                IntakeSvc --> Web: externalReference
+            end
 
-        alt Completed
-            IntakeSvc -> IntakeSvc: Payment.Complete()
-            IntakeSvc -> DB: SaveChanges()
-            IntakeSvc -> Hangfire: Enqueue(SendNotification\n("Payment confirmed"))
-            IntakeSvc --> Web: OK
-            Web --> Sender: confirmation
-        else Failed
-            IntakeSvc -> IntakeSvc: Payment.Fail()
-            IntakeSvc -> DB: SaveChanges()
-            IntakeSvc --> Web: Failed
-            Web --> Sender: "Payment failed" (retry via RequestPaymentAsync)
+            Web -> IntakeSvc: ConfirmPaymentAsync(packageId)
+            IntakeSvc -> PkgRepo: GetByIdAsync(packageId)
+            PkgRepo --> IntakeSvc: package
+
+            alt package.Payment is null
+                IntakeSvc --> Web: throw InvalidOperationException\n"No payment was requested for this package."
+            else Payment.Status == Completed
+                IntakeSvc --> Web: return (nothing to do)
+            else Pending
+                IntakeSvc -> Gateway: GetPaymentStatusAsync(externalReference)
+                Gateway --> IntakeSvc: Completed / Failed / Pending
+
+                alt Completed
+                    IntakeSvc -> IntakeSvc: payment.Complete()
+                    IntakeSvc -> PkgRepo: UpdateAsync(package)
+                    IntakeSvc -> Notify: NotifyAsync("system",\n"Payment for package {id} has been confirmed.")
+                else Failed
+                    IntakeSvc -> IntakeSvc: payment.Fail()
+                    IntakeSvc -> PkgRepo: UpdateAsync(package)
+                    note right of Web
+                      a new RequestPaymentAsync is allowed
+                      after a Failed payment
+                    end note
+                end
+                IntakeSvc --> Web: OK
+            end
         end
     end
 end
 
-note over OrderSvc, DB
-  Both boxes are reserved for this package from Ordered until it's
-  Collected (or cancelled/rejected/expired) - no other order can take
-  either box in the meantime. See BoxRepository.FindFreeBoxAsync.
+note over BoxRepo, DB
+  Both boxes stay reserved from Ordered until the package reaches
+  Collected, Cancelled, Rejected, Expired or ReturnedToSender
+  (BoxRepository.FindFreeBoxAsync skips boxes used by any other package).
+  FakePaymentGateway always answers Completed.
 end note
 
-== cancel (sender, while Ordered / Accepted) ==
-Sender -> Web: Cancel order (packageId)
+== cancel (sender or assigned operator, while Ordered / Accepted) ==
+Sender -> Web: cancel (packageId)
 Web -> OrderSvc: CancelPackageAsync(packageId, senderId)
-OrderSvc -> DB: GetByIdAsync(packageId)
-DB --> OrderSvc: package
+OrderSvc -> PkgRepo: GetByIdAsync(packageId)
+PkgRepo --> OrderSvc: package / null
 
-alt requestingUserId is neither SenderId nor OperatorId
-    OrderSvc --> Web: throw InvalidOperationException\n"Only the sender or assigned operator can cancel"
-    Web --> Sender: error
+alt package is null
+    OrderSvc --> Web: throw ArgumentException\n"Package not found"
+else requestingUserId is neither SenderId nor OperatorId
+    OrderSvc --> Web: throw InvalidOperationException\n"User {id} is not authorized to cancel package {id}. ..."
 else Status is not Ordered / Accepted
     OrderSvc -> OrderSvc: package.Cancel()\n(throws "Cannot cancel package in status ...")
-    OrderSvc --> Web: error
-    Web --> Sender: error
+    OrderSvc --> Web: InvalidOperationException
 else OK
     OrderSvc -> OrderSvc: package.Cancel()\n(Status=Cancelled)
-    OrderSvc -> DB: UpdateAsync(package)
-    note right of DB
-      Cancelled is a terminal status, so both
-      reserved boxes become free again
-      (BoxRepository.FindFreeBoxAsync)
-    end note
-    OrderSvc -> Hangfire: Enqueue(SendNotification("system",\n"Package cancelled"))
-    OrderSvc -> Hangfire: Enqueue(SendNotification(sender.Email,\n"Your package has been cancelled"))
+    OrderSvc -> PkgRepo: UpdateAsync(package)
+    OrderSvc -> Notify: NotifyAsync("system",\n"Package {id} was cancelled by user {userId}.")
+    OrderSvc -> Notify: NotifyAsync(sender.Email,\n"Your package #{id} has been cancelled.")
     OrderSvc --> Web: OK
-    Web --> Sender: "Package cancelled"
+    Web --> Sender: "Przesyłka #id została anulowana"
 end
 
 @enduml
@@ -106,48 +136,52 @@ end
 title 02 - Courier: confirm deposit (or report it missing)
 
 actor "Courier\n(doing locker rounds)" as Courier
-participant "Blazor\nWeb App" as Web
+participant "Home.razor\n(Blazor)" as Web
 participant "PackageIntakeService" as IntakeSvc
-database "MySQL\n(EF Core)" as DB
-queue "Hangfire\nJob Queue" as Hangfire
+participant "PackageRepository" as PkgRepo
+participant "PeopleService" as People
+participant "BackgroundNotificationService\n(INotificationService)" as Notify
 
 note over Courier
-  Any courier who happens to be checking this locker can confirm -
-  not necessarily the one later assigned to carry the package (that
-  assignment only happens after acceptance, see diagram 04).
+  Any courier checking this locker can confirm -
+  not necessarily the one later assigned to carry
+  the package (AssignCourierAsync, diagram 04).
   The sender can NOT self-report this.
 end note
 
-Courier -> Web: open origin box (kod/token), look inside
-
-alt package is physically there
-    Courier -> Web: Confirm deposit (packageId)
+alt package is physically in the box
+    Courier -> Web: confirm deposit (packageId)
     Web -> IntakeSvc: ConfirmDepositAsync(packageId, courierId)
-    IntakeSvc -> DB: GetCourierAsync(courierId)
-    DB --> IntakeSvc: courier
-    IntakeSvc -> IntakeSvc: package.ConfirmDeposit()\n(checks now <= DepositDeadline)
-    IntakeSvc -> DB: SaveChanges()
-    IntakeSvc -> Hangfire: Enqueue(SendNotification\n("Deposit confirmed"))
+    IntakeSvc -> PkgRepo: GetByIdAsync(packageId)
+    PkgRepo --> IntakeSvc: package / null (throw ArgumentException "Package not found")
+    IntakeSvc -> People: GetCourierAsync(courierId)
+    People --> IntakeSvc: courier / null (throw ArgumentException "Courier not found")
+    IntakeSvc -> IntakeSvc: package.ConfirmDeposit()\n(throws if Status != Ordered\nor now > DepositDeadline)
+    IntakeSvc -> PkgRepo: UpdateAsync(package)
+    IntakeSvc -> Notify: NotifyAsync("system",\n"Courier {name} confirmed package {id} is in its box.")
     IntakeSvc --> Web: OK
-    Web --> Courier: confirmed
 else box is empty
-    Courier -> Web: Report missing (packageId)
+    Courier -> Web: report missing (packageId)
     Web -> IntakeSvc: ReportMissingDepositAsync(packageId, courierId)
-    IntakeSvc -> IntakeSvc: package.Cancel()
-    IntakeSvc -> DB: SaveChanges()
-    IntakeSvc -> Hangfire: Enqueue(SendNotification\n("Cancelled - sender never deposited"))
+    IntakeSvc -> PkgRepo: GetByIdAsync(packageId)
+    PkgRepo --> IntakeSvc: package
+    IntakeSvc -> People: GetCourierAsync(courierId)
+    People --> IntakeSvc: courier
+    IntakeSvc -> IntakeSvc: package.Cancel()\n(Status=Cancelled)
+    IntakeSvc -> PkgRepo: UpdateAsync(package)
+    IntakeSvc -> Notify: NotifyAsync("system", "Package {id} was cancelled:\ncourier {name} found the box empty at pickup (sender's fault).")
     IntakeSvc --> Web: OK
 end
 
-== fallback: nobody checks in time ==
-queue "Hangfire\nrecurring job" as Recurring
-Recurring -> IntakeSvc: ProcessMissedDepositsAsync() (every minute)
-IntakeSvc -> DB: GetPackagesWithMissedDepositAsync()
-DB --> IntakeSvc: packages past DepositDeadline, still Ordered
+== fallback: nobody confirms the deposit in time ==
+queue "Hangfire recurring job\nrelease-missed-deposits" as Recurring
+Recurring -> IntakeSvc: ProcessMissedDepositsAsync() (Cron.Minutely)
+IntakeSvc -> PkgRepo: GetPackagesWithMissedDepositAsync()
+PkgRepo --> IntakeSvc: Status == Ordered, DepositConfirmedAt == null,\nDepositDeadline < now
 loop each package
     IntakeSvc -> IntakeSvc: package.Cancel()
-    IntakeSvc -> DB: SaveChanges()
-    IntakeSvc -> Hangfire: Enqueue(SendNotification("Cancelled"))
+    IntakeSvc -> PkgRepo: UpdateAsync(package)
+    IntakeSvc -> Notify: NotifyAsync("system", "Package {id} was cancelled:\nnothing was deposited before the pickup window closed.")
 end
 
 @enduml
@@ -156,99 +190,101 @@ end
 title 03 - Operator: accept or reject
 
 actor Operator
-participant "Blazor\nWeb App" as Web
+participant "Home.razor\n(Blazor)" as Web
 participant "PackageAcceptanceService" as AcceptSvc
-database "MySQL\n(EF Core)" as DB
-queue "Hangfire\nJob Queue" as Hangfire
+participant "PackageRepository" as PkgRepo
+participant "BoxRepository" as BoxRepo
+participant "PeopleService" as People
+participant "BackgroundNotificationService\n(INotificationService)" as Notify
+database "MySQL\n(DeliveryDbContext)" as DB
 
-Operator -> Web: Open "Packages ready for processing"
-Web -> DB: SELECT Packages WHERE Status = Ordered
-DB --> Web: list
-Web --> Operator: list
+Operator -> Web: open page
+Web -> DB: Db.Packages.Include(...).ToListAsync()
+DB --> Web: packages (page shows Accept / Reject for Ordered ones)
 
 alt Accept
-    Operator -> Web: Accept(packageId, boxId)
+    Operator -> Web: accept (packageId, boxId)
     Web -> AcceptSvc: AcceptPackageAsync(packageId, operatorId, boxId)
-    AcceptSvc -> DB: GetByIdAsync(packageId) (includes Payment)
-    DB --> AcceptSvc: package
-    AcceptSvc -> AcceptSvc: verify package.BoxId == boxId
-    AcceptSvc -> DB: GetByIdAsync(boxId)
-    DB --> AcceptSvc: box
-    AcceptSvc -> AcceptSvc: verify box.Size == package.Size
-    AcceptSvc -> DB: GetOperatorAsync(operatorId)
-    DB --> AcceptSvc: operator
+    AcceptSvc -> PkgRepo: GetByIdAsync(packageId)
+    PkgRepo --> AcceptSvc: package (with Payment) / null
+    AcceptSvc -> AcceptSvc: checks: package found, Status == Ordered,\npackage.BoxId == boxId
+    AcceptSvc -> BoxRepo: GetByIdAsync(boxId)
+    BoxRepo --> AcceptSvc: box / null
+    AcceptSvc -> AcceptSvc: check box.Size == package.Size
+    AcceptSvc -> People: GetOperatorAsync(operatorId)
+    People --> AcceptSvc: operator / null
 
-    AcceptSvc -> AcceptSvc: package.Accept()\n(throws if DepositConfirmedAt is null\nor Payment.Status != Completed)
+    AcceptSvc -> AcceptSvc: package.Accept()\n(throws if DepositConfirmedAt is null\nor Payment.Status != Completed;\nsets AcceptedAt, ExpiredAt = AcceptedAt + 48h)
     AcceptSvc -> AcceptSvc: package.AssignOperator(operator)
-    AcceptSvc -> DB: SaveChanges()
-    AcceptSvc -> Hangfire: Enqueue(SendNotification("Package accepted"))
+    AcceptSvc -> PkgRepo: UpdateAsync(package)
+    AcceptSvc -> Notify: NotifyAsync("system",\n"Package {id} has been accepted by operator {name}.")
     AcceptSvc --> Web: OK
 else Reject
-    Operator -> Web: Reject(packageId)
+    Operator -> Web: reject (packageId)
     Web -> AcceptSvc: RejectPackageAsync(packageId, operatorId)
-    AcceptSvc -> DB: GetByIdAsync(packageId)
-    DB --> AcceptSvc: package
-    AcceptSvc -> DB: GetOperatorAsync(operatorId)
-    DB --> AcceptSvc: operator
+    AcceptSvc -> PkgRepo: GetByIdAsync(packageId)
+    PkgRepo --> AcceptSvc: package
+    AcceptSvc -> People: GetOperatorAsync(operatorId)
+    People --> AcceptSvc: operator
     AcceptSvc -> AcceptSvc: package.Reject()\n(Status=Rejected; allowed from Ordered or Accepted)
-    AcceptSvc -> DB: SaveChanges()
-    AcceptSvc -> Hangfire: Enqueue(SendNotification("Package rejected"))
+    AcceptSvc -> PkgRepo: UpdateAsync(package)
+    AcceptSvc -> Notify: NotifyAsync("system",\n"Package {id} has been rejected by operator {name}.")
     AcceptSvc --> Web: OK
 end
 
-Web --> Operator: updated list
+note over AcceptSvc
+  Errors: ArgumentException "Package not found" / "Box ID does not match
+  the package's assigned box" / "Box not found" / "Operator not found";
+  InvalidOperationException "Package is not in an orderable state" /
+  "Package declared as {size} cannot be accepted into a {size} box"
+end note
 
 @enduml
 
 @startuml 04-courier-pickup-delivery
 title 04 - Courier: assign, pick up, deliver
 
-actor Operator
 actor Courier
-participant "Blazor\nWeb App" as Web
+participant "Home.razor\n(Blazor)" as Web
 participant "PackageFulfillmentService" as FulfillSvc
-database "MySQL\n(EF Core)" as DB
-participant "Box" as Box
-queue "Hangfire\nJob Queue" as Hangfire
+participant "PackageRepository" as PkgRepo
+participant "PeopleService" as People
+participant "BackgroundNotificationService\n(INotificationService)" as Notify
 
-== assign (operator, right after accepting - diagram 03) ==
-Operator -> Web: Assign courier
+== assign + pick up (one button in Home.razor: "Kurier: Odbierz i Wyślij") ==
+Courier -> Web: pick up (packageId)
 Web -> FulfillSvc: AssignCourierAsync(packageId, courierId)
-FulfillSvc -> DB: GetCourierAsync(courierId)
-DB --> FulfillSvc: courier
+FulfillSvc -> PkgRepo: GetByIdAsync(packageId)
+PkgRepo --> FulfillSvc: package
+FulfillSvc -> People: GetCourierAsync(courierId)
+People --> FulfillSvc: courier / null (throw ArgumentException "Courier not found")
 FulfillSvc -> FulfillSvc: package.AssignCourier(courier)\n(requires Status == Accepted)
-FulfillSvc -> DB: SaveChanges()
-FulfillSvc --> Web: OK
+FulfillSvc -> PkgRepo: UpdateAsync(package)
+FulfillSvc -> Notify: NotifyAsync("system",\n"Package {id} has been assigned to courier {name}.")
 
-== pick up ==
-Courier -> Web: Open "Packages assigned to me"
-Web -> DB: SELECT Packages WHERE CourierId = @id
-DB --> Web: list
-Web --> Courier: list
-
-Courier -> Web: Pick up (packageId)
 Web -> FulfillSvc: ShipPackageAsync(packageId)
-Courier -> Box: open origin box (kod/token)
+FulfillSvc -> PkgRepo: GetByIdAsync(packageId)
+PkgRepo --> FulfillSvc: package
 FulfillSvc -> FulfillSvc: package.Prepare()\n(Status=Preparing, PreparedAt=now)
-FulfillSvc -> FulfillSvc: package.Ship()\n(Status=Shipped, ShippedAt=now)
-FulfillSvc -> DB: SaveChanges()
-FulfillSvc -> Hangfire: Enqueue(SendNotification("Package shipped"))
+FulfillSvc -> FulfillSvc: package.Ship()\n(Status=Shipped, ShippedAt=now,\nExpiredAt=ShippedAt+48h)
+FulfillSvc -> PkgRepo: UpdateAsync(package)
+FulfillSvc -> Notify: NotifyAsync("system", "Package {id} has been shipped.")
 FulfillSvc --> Web: OK
 
 == delivery ==
-Courier -> Web: Deliver (packageId)
+Courier -> Web: deliver (packageId)
 Web -> FulfillSvc: DeliverPackageAsync(packageId)
-Courier -> Box: open destination box
-FulfillSvc -> FulfillSvc: package.Deliver()\n(Status=Delivered, DeliveredAt=now,\nExpiredAt=now+48h, generates PickupCode)
-FulfillSvc -> DB: SaveChanges()
-FulfillSvc -> Hangfire: Enqueue(SendNotification\n("Package delivered, pickup code: " + PickupCode))
+FulfillSvc -> PkgRepo: GetByIdAsync(packageId)
+PkgRepo --> FulfillSvc: package
+FulfillSvc -> FulfillSvc: package.Deliver()\n(Status=Delivered, DeliveredAt=now,\nExpiredAt=DeliveredAt+48h, PickupCode = 6 digits)
+FulfillSvc -> PkgRepo: UpdateAsync(package)
+FulfillSvc -> Notify: NotifyAsync("system",\n"Package {id} has been delivered. Pickup code: {code}")
 FulfillSvc --> Web: OK
 
-note over FulfillSvc, DB
-  No "destination box unavailable / secondary location" branch here:
-  the destination box has been reserved for this package since it was
-  ordered (diagram 01), so by construction it cannot have been taken
-  by anyone else by delivery time.
+note over FulfillSvc, PkgRepo
+  No "destination box taken" branch: the destination box is reserved
+  since the order (diagram 01). A Shipped package whose ExpiredAt passes
+  (lost in transit) is expired by the expire-packages job (diagram 05).
 end note
 
 @enduml
@@ -257,66 +293,66 @@ end note
 title 05 - Customer: collect package and rate courier / sender
 
 actor "User\n(Recipient)" as Recipient
-participant "Blazor\nWeb App" as Web
+participant "Home.razor\n(Blazor)" as Web
 participant "PackageFulfillmentService" as FulfillSvc
 participant "RatingService" as RatingSvc
-database "MySQL\n(EF Core)" as DB
+participant "PackageRepository" as PkgRepo
+participant "PeopleService" as People
+participant "BackgroundNotificationService\n(INotificationService)" as Notify
 
-Recipient -> Web: Open "My packages"
-Web -> DB: SELECT Packages WHERE RecipientId = @id
-DB --> Web: packages + statuses
-Web --> Recipient: packages + statuses
-
-Recipient -> Web: Collect (packageId, pickup code)
+Recipient -> Web: collect (packageId, pickup code)
 Web -> FulfillSvc: CollectPackageAsync(packageId, userId, code)
-FulfillSvc -> DB: GetByIdAsync(packageId)
-DB --> FulfillSvc: package
+FulfillSvc -> PkgRepo: GetByIdAsync(packageId)
+PkgRepo --> FulfillSvc: package
 
 alt package.RecipientId != userId
     FulfillSvc --> Web: throw InvalidOperationException\n"Only this package's recipient can collect it"
     Web --> Recipient: error
 else wrong code or wrong status
-    FulfillSvc -> FulfillSvc: package.Collect(code)\n(throws: invalid code, or Status != Delivered)
+    FulfillSvc -> FulfillSvc: package.Collect(code)\n(throws "Invalid pickup code"\nor "Cannot collect package in status ...")
     FulfillSvc --> Web: error
-    Web --> Recipient: message
+    Web --> Recipient: error
 else OK
     FulfillSvc -> FulfillSvc: package.Collect(code)\n(Status=Collected, CollectedAt=now)
-    FulfillSvc -> DB: SaveChanges()
+    FulfillSvc -> PkgRepo: UpdateAsync(package)
+    FulfillSvc -> Notify: NotifyAsync("system", "Package {id} has been collected.")
     FulfillSvc --> Web: OK
-    Web --> Recipient: "Package collected"
+    Web --> Recipient: "Paczka została odebrana"
 
     opt rate (only once Collected)
-        Recipient -> Web: Rate courier (1..5)
-        Web -> RatingSvc: RateCourierAsync(packageId, recipientId, score)
-        RatingSvc -> DB: GetByIdAsync(packageId)
-        DB --> RatingSvc: package
-        RatingSvc -> RatingSvc: verify Status == Collected\nand RecipientId == recipientId
-        RatingSvc -> DB: UpdateRankAsync(package.CourierId, score)
-        RatingSvc --> Web: OK
+        note over Recipient, RatingSvc
+          IRatingService is registered in Web and used by the CLI demo
+          and test WF15; Home.razor has no rating button yet.
+        end note
+        Recipient -> RatingSvc: RateCourierAsync(packageId, raterUserId, score)
+        RatingSvc -> RatingSvc: score in 1..5\n(else ArgumentOutOfRangeException)
+        RatingSvc -> PkgRepo: GetByIdAsync(packageId)
+        PkgRepo --> RatingSvc: package
+        RatingSvc -> RatingSvc: Status == Collected, RecipientId == raterUserId,\nCourierId != null ("This package has no courier to rate")
+        RatingSvc -> People: UpdateRankAsync(package.CourierId, score)
 
-        Recipient -> Web: Rate sender (1..5)
-        Web -> RatingSvc: RateSenderAsync(packageId, recipientId, score)
-        RatingSvc -> DB: UpdateRankAsync(package.SenderId, score)
-        RatingSvc --> Web: OK
+        Recipient -> RatingSvc: RateSenderAsync(packageId, raterUserId, score)
+        RatingSvc -> PkgRepo: GetByIdAsync(packageId)
+        PkgRepo --> RatingSvc: package
+        RatingSvc -> People: UpdateRankAsync(package.SenderId, score)
     end
 end
 
-note over RatingSvc, DB
+note over RatingSvc, People
   Rank is overwritten by each new rating, not averaged - there is no
   rating history table (see AbstractPerson.Rank).
 end note
 
 == fallback: recipient does not collect within 48 h ==
-queue "Hangfire\nrecurring job" as Recurring
+queue "Hangfire recurring job\nexpire-packages" as Recurring
 participant "PackageAcceptanceService" as AcceptSvc
-queue "Hangfire\nJob Queue" as Hangfire
-Recurring -> AcceptSvc: ProcessExpiredPackagesAsync() (every minute)
-AcceptSvc -> DB: GetPackagesRequiringExpirationAsync()
-DB --> AcceptSvc: Accepted / Shipped / Delivered\nwith ExpiredAt < now
+Recurring -> AcceptSvc: ProcessExpiredPackagesAsync() (Cron.Minutely)
+AcceptSvc -> PkgRepo: GetPackagesRequiringExpirationAsync()
+PkgRepo --> AcceptSvc: Accepted / Shipped / Delivered\nwith ExpiredAt < now
 loop each package
     AcceptSvc -> AcceptSvc: package.Expire()\n(Status=Expired)
-    AcceptSvc -> DB: UpdateAsync(package)
-    AcceptSvc -> Hangfire: Enqueue(SendNotification\n("Package marked as EXPIRED"))
+    AcceptSvc -> PkgRepo: UpdateAsync(package)
+    AcceptSvc -> Notify: NotifyAsync("system",\n"Package {id} has been marked as EXPIRED due to inactivity.")
 end
 
 @enduml
@@ -325,97 +361,91 @@ end
 title 06 - Customer: return items (partial or full return)
 
 actor "User\n(Recipient / Customer)" as Customer
-participant "Blazor\nWeb App" as Web
+participant "Home.razor\n(Blazor)" as Web
 participant "PackageReturnService" as ReturnSvc
+participant "PackageRepository" as PkgRepo
+participant "BoxRepository" as BoxRepo
 participant "PackageOrderService" as OrderSvc
-database "MySQL\n(EF Core)" as DB
-queue "Hangfire\nJob Queue" as Hangfire
+participant "BackgroundNotificationService\n(INotificationService)" as Notify
 
-== 1. Pobranie listy produktów możliwych do zwrotu ==
+== 1. items that can still be returned ==
 
-Customer -> Web: Otwórz szczegóły odebranej paczki\n(kliknij "Zwróć produkty")
-Web -> ReturnSvc: GetAvailableItemsForReturnAsync(originalPackageId, customerId)
-ReturnSvc -> DB: SELECT Package + Items WHERE Id = originalPackageId
-DB --> ReturnSvc: originalPackage (z pozycjami Items)
+note over Customer, Web
+  Home.razor shows pkg.Items with item.IsReturned directly (checkboxes);
+  the same list is available from the service:
+end note
+Customer -> ReturnSvc: GetAvailableItemsForReturnAsync(originalPackageId, customerId)
+ReturnSvc -> PkgRepo: GetByIdAsync(originalPackageId)
+PkgRepo --> ReturnSvc: originalPackage (with Items)
 
-alt Użytkownik nie jest odbiorcą paczki (customerId != RecipientId)
-    ReturnSvc --> Web: throw InvalidOperationException\n"Only the package recipient can query returnable items"
-    Web --> Customer: Komunikat: brak uprawnień
-else Poprawny odbiorca
-    ReturnSvc -> ReturnSvc: Filtruj pozycje Items:\ngdzie !item.IsReturned (ReturnPackageId == null)
-    ReturnSvc --> Web: Lista zwracalnych produktów (availableItems)
-    Web --> Customer: Wyświetlenie listy produktów z checkboxami do wyboru
+alt customerId != RecipientId
+    ReturnSvc --> Customer: throw InvalidOperationException\n"Only the package recipient can query returnable items."
+else recipient
+    ReturnSvc --> Customer: Items where !item.IsReturned\n(ReturnPackageId == null)
 end
 
-== 2. Zgłoszenie zwrotu (utworzenie przesyłki powrotnej) ==
+== 2. create the return delivery ==
 
-Customer -> Web: Zaznacz pozycje do zwrotu [itemIds]\n(opcjonalnie: wskaż paczkomat zwrotu i gabaryt)
-Web -> ReturnSvc: CreateReturnDeliveryAsync(originalPackageId, customerId,\nitemIds, originLockerId?, size?)
+Customer -> Web: tick items [itemIds], "Zwróć"
+Web -> ReturnSvc: CreateReturnDeliveryAsync(originalPackageId, customerId, itemIds)\n(optional: originLockerId, size)
+ReturnSvc -> PkgRepo: GetByIdAsync(originalPackageId)
+PkgRepo --> ReturnSvc: originalPackage
 
-ReturnSvc -> DB: SELECT originalPackage + Items
-DB --> ReturnSvc: originalPackage
-
-alt Walidacja nie powiodła się
+alt validation fails
     note over ReturnSvc
-      Warunki walidacji:
-      - itemIds nie jest puste
-      - originalPackage.RecipientId == customerId
-      - originalPackage.Status == Collected (tylko odebrane paczki!)
-      - wybrane produkty należą do tej paczki
-      - żaden z wybranych produktów nie był wcześniej zwrócony (!IsReturned)
+      In this order:
+      - itemIds empty -> ArgumentException
+      - package not found -> ArgumentException
+      - RecipientId != customerId -> InvalidOperationException
+      - Status != Collected -> InvalidOperationException
+      - an item not in this package -> ArgumentException
+      - an item already returned -> InvalidOperationException
+      - BoxId / DestinationBoxId missing -> InvalidOperationException
     end note
-    ReturnSvc --> Web: throw InvalidOperationException / ArgumentException
-    Web --> Customer: Wyświetlenie błędu walidacji
-else Walidacja pomyślna
-    ReturnSvc -> DB: Pobierz pierwotne skrytki (DestinationBoxId, BoxId)\nw celu ustalenia domyślnych paczkomatów
-    DB --> ReturnSvc: skrytki
+    ReturnSvc --> Web: exception
+    Web --> Customer: error message
+else valid
+    ReturnSvc -> BoxRepo: GetByIdAsync(originalPackage.DestinationBoxId)
+    BoxRepo --> ReturnSvc: customer's box (ParcelLockerId)
+    ReturnSvc -> BoxRepo: GetByIdAsync(originalPackage.BoxId)
+    BoxRepo --> ReturnSvc: merchant's box (ParcelLockerId)
 
     note over ReturnSvc
-      Automatyczne odwrócenie ról i trasy:
-      - Nadawca zwrotu = dotychczasowy odbiorca (Klient)
-      - Odbiorca zwrotu = pierwotny nadawca (Sklep / Sprzedawca)
-      - Paczkomat nadawczy zwrotu = paczkomat odbiorczy klienta
-      - Paczkomat docelowy zwrotu = paczkomat nadawczy sklepu
+      Roles and route are swapped:
+      senderId = original RecipientId, recipientId = original SenderId,
+      origin locker = originLockerId ?? customer's locker,
+      destination locker = merchant's locker, size = size ?? original Size
     end note
 
-    ReturnSvc -> OrderSvc: CreatePackageAsync(senderId: originalRecipientId,\nrecipientId: originalSenderId, returnOriginLockerId,\nreturnDestLockerId, returnSize)
-    OrderSvc -> DB: FindFreeBoxAsync(returnOriginLockerId, returnSize)
-    DB --> OrderSvc: originBox / null
+    ReturnSvc -> OrderSvc: CreatePackageAsync(senderId, recipientId,\nreturnOriginLockerId, returnDestinationLockerId, returnSize)
+    note right of OrderSvc
+      same steps as diagram 01:
+      GetUserAsync x2, FindFreeBoxAsync x2, AddAsync
+    end note
 
-    alt brak wolnej skrytki w paczkomacie zwrotu (origin)
-        OrderSvc --> ReturnSvc: throw InvalidOperationException\n"No free box at return locker"
-        ReturnSvc --> Web: throw InvalidOperationException
-        Web --> Customer: "Brak wolnej skrytki w paczkomacie zwrotu - wybierz inny paczkomat/rozmiar"
-    else wolna skrytka w paczkomacie zwrotu znaleziona
-        OrderSvc -> DB: FindFreeBoxAsync(returnDestLockerId, returnSize, exclude: originBox.Id)
-        DB --> OrderSvc: destinationBox / null
-
-        alt brak wolnej skrytki w paczkomacie sklepu (destination)
-            OrderSvc --> ReturnSvc: throw InvalidOperationException\n"No free box at destination locker"
-            ReturnSvc --> Web: throw InvalidOperationException
-            Web --> Customer: "Brak wolnej skrytki w paczkomacie sklepu"
-        else obie skrytki zarezerwowane (origin + destination)
-            OrderSvc -> DB: INSERT Package(Status = Ordered,\nBoxId, DestinationBoxId, DepositDeadline = now + 48h)
-            DB --> OrderSvc: returnPackage
-            OrderSvc --> ReturnSvc: returnPackage
-
-            ReturnSvc -> ReturnSvc: returnPackage.OriginalPackageId = originalPackage.Id
-            loop Dla każdego zwracanego produktu
-                ReturnSvc -> ReturnSvc: item.ReturnPackageId = returnPackage.Id\n(oznaczenie jako zwrócony)
-            end
-
-            ReturnSvc -> DB: UPDATE Package (originalPackage + returnPackage + items)
-            ReturnSvc -> Hangfire: Enqueue(SendNotification\n("Return delivery created"))
-            ReturnSvc --> Web: returnPackage (Status = Ordered)
-            Web --> Customer: Potwierdzenie utworzenia zwrotu\n(kod nadania, instrukcja włożenia do skrytki)
+    alt no free box (origin or destination)
+        OrderSvc --> ReturnSvc: throw InvalidOperationException\n"No free {size} box at the chosen ... locker"
+        ReturnSvc --> Web: exception (nothing marked, nothing saved)
+        Web --> Customer: error message
+    else boxes reserved
+        OrderSvc --> ReturnSvc: returnPackage (Status=Ordered)
+        ReturnSvc -> ReturnSvc: returnPackage.OriginalPackageId = originalPackage.Id
+        loop each returned item
+            ReturnSvc -> ReturnSvc: item.ReturnPackageId = returnPackage.Id
         end
+        ReturnSvc -> PkgRepo: UpdateAsync(originalPackage)
+        ReturnSvc -> PkgRepo: UpdateAsync(returnPackage)
+        ReturnSvc -> Notify: NotifyAsync("system", "Return delivery {id} created\nfor package {id} with {n} item(s).")
+        ReturnSvc --> Web: returnPackage
+        Web --> Customer: "Utworzono przesyłkę zwrotną #id"
     end
 end
 
-== 3. Dalszy cykl życia przesyłki zwrotnej (Identyczny ze zwykłą paczką) ==
+== 3. from here on the return is an ordinary package ==
 
-note over Customer, Hangfire #LightCyan
-  <b>OD TEGO MOMENTU PROCES NICZYM NIE RÓŻNI SIĘ OD ZWYKŁEJ PACZKI</b>
-  Utworzona przesyłka (returnPackage) jest pełnoprawnym obiektem <b>Package</b> ze statusem <b>Ordered</b>.
+note over Customer, Notify #LightCyan
+  <b>returnPackage is a normal Package in status Ordered</b>:
+  payment, deposit, acceptance, transport and collection go through
+  diagrams 01-05 unchanged.
 end note
 @enduml

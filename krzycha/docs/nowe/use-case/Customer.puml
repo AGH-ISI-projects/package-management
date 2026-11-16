@@ -1,0 +1,45 @@
+@startuml
+title Customer (sender / recipient) - use cases
+
+left to right direction
+skinparam packageStyle rectangle
+skinparam linetype polyline
+
+actor Customer
+
+rectangle "Package Delivery System" {
+    usecase "View my packages\nand their status" as UC1 #DAE8FC
+    usecase "Send new package" as UC2 #DAE8FC
+    usecase "Return package\n(full or partially)" as UC12 #DAE8FC
+    usecase "Cancel package\n(while Ordered / Accepted)" as UC3 #DAE8FC
+    usecase "Collect package from\ndestination box" as UC4 #DAE8FC
+    usecase "Receive status\nnotifications" as UC5 #DAE8FC
+    usecase "Rate courier" as UC6 #DAE8FC
+    usecase "Rate sender" as UC7 #DAE8FC
+    usecase "Contact support" as UC8 #DAE8FC
+
+    usecase "Choose origin parcel locker and\ndestination parcel locker" as UC10 #F5F5F5
+    usecase "Payment" as UC11 #F5F5F5
+}
+
+Customer -- UC1
+Customer -- UC2
+Customer -- UC12
+Customer -- UC3
+Customer -- UC4
+Customer -- UC5
+Customer -- UC6
+Customer -- UC7
+Customer -- UC8
+
+
+UC2 ..> UC10 : <<include>>
+UC2 ..> UC11 : <<include>>
+UC12 <.. UC10 : <<extend>>
+UC12 ..> UC11 : <<include>>
+UC6 ..> UC4 : <<requires>>
+UC7 ..> UC4 : <<requires>>
+UC12 ..> UC4 : <<requires>>
+@enduml
+
+1.2026.9beta4
